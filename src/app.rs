@@ -14,6 +14,7 @@ use ratatui::layout::{Constraint, Layout};
 use crate::buffer::Buffer;
 use crate::file_tree::FileTree;
 use crate::pane::EditorPane;
+use crate::syntax::Syntax;
 use crate::terminal::Tui;
 
 /// Width of the file-tree sidebar, in columns.
@@ -32,6 +33,9 @@ pub struct App {
     should_quit: bool,
     /// Central buffer store; panes reference entries by index (`buffer_id`).
     buffers: Vec<Buffer>,
+    /// Per-buffer highlighter (parallel to `buffers`); `None` when the buffer's
+    /// language has no bundled grammar.
+    syntaxes: Vec<Option<Syntax>>,
     /// Side-by-side editor panes (vertical splits).
     panes: Vec<EditorPane>,
     /// Index into `panes` of the pane receiving input.
@@ -43,9 +47,11 @@ pub struct App {
 impl App {
     /// Start with a single pane viewing `buffer` and a sidebar rooted at `root`.
     pub fn new(buffer: Buffer, root: impl AsRef<std::path::Path>) -> Self {
+        let syntax = buffer.path().and_then(Syntax::for_path);
         Self {
             should_quit: false,
             buffers: vec![buffer],
+            syntaxes: vec![syntax],
             panes: vec![EditorPane::new(0)],
             focused: 0,
             tree: FileTree::new(root),
@@ -80,8 +86,9 @@ impl App {
         let regions = Layout::horizontal(constraints).split(editor_area);
         for (i, pane) in self.panes.iter_mut().enumerate() {
             let buffer = &self.buffers[pane.buffer_id];
+            let syntax = self.syntaxes[pane.buffer_id].as_ref();
             let focused = self.focus == Focus::Editor && i == self.focused;
-            pane.render(frame, regions[i], buffer, focused);
+            pane.render(frame, regions[i], buffer, syntax, focused);
         }
     }
 
@@ -193,8 +200,10 @@ impl App {
     /// Open `path` into the focused pane (as a new buffer) and focus the editor.
     fn open_in_focused_pane(&mut self, path: PathBuf) {
         if let Ok(buffer) = Buffer::from_path(&path) {
+            let syntax = buffer.path().and_then(Syntax::for_path);
             let id = self.buffers.len();
             self.buffers.push(buffer);
+            self.syntaxes.push(syntax);
             self.panes[self.focused].set_buffer(id);
             self.focus = Focus::Editor;
         }

@@ -2,6 +2,7 @@ mod app;
 mod buffer;
 mod file_tree;
 mod pane;
+mod syntax;
 mod terminal;
 
 use app::App;

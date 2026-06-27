@@ -9,10 +9,11 @@
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Style};
-use ratatui::text::{Line, Text};
+use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::Paragraph;
 
 use crate::buffer::Buffer;
+use crate::syntax::Syntax;
 
 /// Cursor position within the buffer. `target_col` remembers the column the
 /// user "wants" so vertical movement across short lines doesn't lose it.
@@ -204,15 +205,30 @@ impl EditorPane {
 
     /// Render this pane into `area`: the buffer's visible region plus a
     /// one-row status bar. Only the focused pane places the hardware cursor.
-    pub fn render(&mut self, frame: &mut Frame, area: Rect, buffer: &Buffer, focused: bool) {
+    /// `syntax` is `Some` when the buffer's language has a grammar.
+    pub fn render(
+        &mut self,
+        frame: &mut Frame,
+        area: Rect,
+        buffer: &Buffer,
+        syntax: Option<&Syntax>,
+        focused: bool,
+    ) {
         let [content, status] =
             Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).areas(area);
 
-        self.render_content(frame, content, buffer, focused);
+        self.render_content(frame, content, buffer, syntax, focused);
         self.render_status(frame, status, buffer, focused);
     }
 
-    fn render_content(&mut self, frame: &mut Frame, area: Rect, buffer: &Buffer, focused: bool) {
+    fn render_content(
+        &mut self,
+        frame: &mut Frame,
+        area: Rect,
+        buffer: &Buffer,
+        syntax: Option<&Syntax>,
+        focused: bool,
+    ) {
         let height = area.height as usize;
         let width = area.width as usize;
 
@@ -227,7 +243,7 @@ impl EditorPane {
             }
             let text = buffer.line_text(line_idx);
             let visible: String = text.chars().skip(self.scroll_col).collect();
-            lines.push(Line::raw(visible));
+            lines.push(highlight_line(&visible, syntax));
         }
         frame.render_widget(Paragraph::new(Text::from(lines)), area);
 
@@ -257,6 +273,34 @@ impl EditorPane {
         };
         frame.render_widget(Paragraph::new(text).style(style), area);
     }
+}
+
+/// Build a styled line from `text`, applying syntax highlight spans (byte
+/// ranges) where a grammar is available, and leaving gaps in the default style.
+/// The returned line owns its text, so it does not borrow `text`.
+fn highlight_line(text: &str, syntax: Option<&Syntax>) -> Line<'static> {
+    let Some(syntax) = syntax else {
+        return Line::raw(text.to_string());
+    };
+    let spans = syntax.highlight_line(text);
+    if spans.is_empty() {
+        return Line::raw(text.to_string());
+    }
+
+    let mut out: Vec<Span> = Vec::new();
+    let mut cursor = 0;
+    for (start, end, style) in spans {
+        // Spans are ordered and non-overlapping; fill any gap before this run.
+        if start > cursor {
+            out.push(Span::raw(text[cursor..start].to_string()));
+        }
+        out.push(Span::styled(text[start..end].to_string(), style));
+        cursor = end;
+    }
+    if cursor < text.len() {
+        out.push(Span::raw(text[cursor..].to_string()));
+    }
+    Line::from(out)
 }
 
 /// Given the current scroll offset, the cursor index, and the viewport size on
