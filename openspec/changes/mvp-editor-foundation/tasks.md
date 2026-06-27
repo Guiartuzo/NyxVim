@@ -31,12 +31,12 @@
 
 ## 5. Vertical splits and focus (capability: pane-layout)
 
-- [ ] 5.1 Model the editing area as a layout of panes addressed by ID; panes reference buffers by buffer ID
-- [ ] 5.2 Vertical-split command: add a pane beside the current one, dividing available width
-- [ ] 5.3 Render each pane independently within its computed region
-- [ ] 5.4 Track a single focused pane; route key input only to it; indicate focus visually
-- [ ] 5.5 Focus-next command to move focus between panes
-- [ ] 5.6 Close-focused-pane command that reclaims the region and moves focus to a remaining pane
+- [x] 5.1 Model the editing area as a layout of panes addressed by ID; panes reference buffers by buffer ID
+- [x] 5.2 Vertical-split command: add a pane beside the current one, dividing available width
+- [x] 5.3 Render each pane independently within its computed region
+- [x] 5.4 Track a single focused pane; route key input only to it; indicate focus visually
+- [x] 5.5 Focus-next command to move focus between panes
+- [x] 5.6 Close-focused-pane command that reclaims the region and moves focus to a remaining pane
 
 ## 6. File tree sidebar (capability: file-tree)
 

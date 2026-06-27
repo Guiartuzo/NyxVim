@@ -151,4 +151,33 @@ mod tests {
         assert_eq!(b.line_col(5), (1, 2));
         assert_eq!(b.line_col(0), (0, 0));
     }
+
+    #[test]
+    fn save_writes_file_and_clears_dirty() {
+        use std::io::Read;
+        let path =
+            std::env::temp_dir().join(format!("nyxvim_save_test_{}.txt", std::process::id()));
+        std::fs::write(&path, "old").unwrap();
+
+        let mut b = Buffer::from_path(&path).unwrap();
+        b.insert(b.len_chars(), "!");
+        assert!(b.is_dirty());
+
+        assert!(b.save().unwrap());
+        assert!(!b.is_dirty());
+
+        let mut written = String::new();
+        std::fs::File::open(&path)
+            .unwrap()
+            .read_to_string(&mut written)
+            .unwrap();
+        assert_eq!(written, "old!");
+        std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn save_without_path_is_noop() {
+        let mut b = Buffer::from_str("text");
+        assert!(!b.save().unwrap());
+    }
 }
