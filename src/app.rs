@@ -51,18 +51,37 @@ impl App {
         Ok(())
     }
 
-    /// Handle a key press. Global keys are handled here; later milestones route
-    /// non-global keys to the focused component.
+    /// Handle a key press. Global chords (quit, save) are handled here; the
+    /// rest drive modeless editing on the focused view.
     fn on_key(&mut self, key: KeyEvent) {
-        if is_quit(key) {
-            self.should_quit = true;
+        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        let alt = key.modifiers.contains(KeyModifiers::ALT);
+        let extend = key.modifiers.contains(KeyModifiers::SHIFT);
+
+        match key.code {
+            KeyCode::Char('q') if ctrl => self.should_quit = true,
+            KeyCode::Char('s') if ctrl => {
+                let _ = self.view.save();
+            }
+            KeyCode::Left => self.view.move_left(extend),
+            KeyCode::Right => self.view.move_right(extend),
+            KeyCode::Up => self.view.move_up(extend),
+            KeyCode::Down => self.view.move_down(extend),
+            KeyCode::Enter => self.view.insert_newline(),
+            KeyCode::Backspace => self.view.backspace(),
+            KeyCode::Delete => self.view.delete_forward(),
+            KeyCode::Tab => {
+                // Insert spaces so one character always equals one column,
+                // keeping cursor placement correct.
+                for _ in 0..4 {
+                    self.view.insert_char(' ');
+                }
+            }
+            // Printable input: any char that isn't part of a Ctrl/Alt chord.
+            KeyCode::Char(c) if !ctrl && !alt => self.view.insert_char(c),
+            _ => {}
         }
     }
-}
-
-/// The global quit chord: Ctrl+Q.
-fn is_quit(key: KeyEvent) -> bool {
-    key.code == KeyCode::Char('q') && key.modifiers.contains(KeyModifiers::CONTROL)
 }
 
 #[cfg(test)]

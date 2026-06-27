@@ -21,13 +21,13 @@
 
 ## 4. Modeless editing (capability: text-editing)
 
-- [ ] 4.1 Track cursor position (line/column) with a remembered target column for vertical moves
-- [ ] 4.2 Arrow-key movement, clamped to line/buffer bounds, with viewport follow
-- [ ] 4.3 Insert printable characters at the cursor; Enter splits the line
-- [ ] 4.4 Backspace/Delete, including line-join across boundaries
-- [ ] 4.5 Selection: set anchor on `shift+arrow`, extend to cursor; clear on plain movement
-- [ ] 4.6 Typing or backspace with an active selection replaces/removes the selection first
-- [ ] 4.7 Track dirty state; `ctrl+s` writes the buffer to disk and marks it clean; show a dirty indicator
+- [x] 4.1 Track cursor position (line/column) with a remembered target column for vertical moves
+- [x] 4.2 Arrow-key movement, clamped to line/buffer bounds, with viewport follow
+- [x] 4.3 Insert printable characters at the cursor; Enter splits the line
+- [x] 4.4 Backspace/Delete, including line-join across boundaries
+- [x] 4.5 Selection: set anchor on `shift+arrow`, extend to cursor; clear on plain movement
+- [x] 4.6 Typing or backspace with an active selection replaces/removes the selection first
+- [x] 4.7 Track dirty state; `ctrl+s` writes the buffer to disk and marks it clean; show a dirty indicator
 
 ## 5. Vertical splits and focus (capability: pane-layout)
 
