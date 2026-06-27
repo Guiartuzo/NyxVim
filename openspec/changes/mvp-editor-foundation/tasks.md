@@ -1,16 +1,16 @@
 ## 1. Project bootstrap
 
-- [ ] 1.1 Run `cargo init` to create the binary crate, set crate metadata in `Cargo.toml`, and verify `cargo run` prints/exits cleanly
-- [ ] 1.2 Add core dependencies: `ratatui`, `crossterm`, `ropey`
-- [ ] 1.3 Add a `.gitignore` for Rust (`/target`) and make the initial commit
+- [x] 1.1 Run `cargo init` to create the binary crate, set crate metadata in `Cargo.toml`, and verify `cargo run` prints/exits cleanly
+- [x] 1.2 Add core dependencies: `ratatui`, `crossterm`, `ropey`
+- [x] 1.3 Add a `.gitignore` for Rust (`/target`) and make the initial commit
 
 ## 2. App shell (capability: app-shell)
 
-- [ ] 2.1 Enter raw mode + alternate screen on startup; restore terminal on normal exit
-- [ ] 2.2 Install a panic hook that restores the terminal before printing the panic
-- [ ] 2.3 Implement the main loop: block on a `crossterm` event, update state, redraw (no busy spin)
-- [ ] 2.4 Add global key dispatch and a quit command (`ctrl+q`) that triggers clean teardown
-- [ ] 2.5 Define the central `App` state struct as the single owner of all app state
+- [x] 2.1 Enter raw mode + alternate screen on startup; restore terminal on normal exit
+- [x] 2.2 Install a panic hook that restores the terminal before printing the panic
+- [x] 2.3 Implement the main loop: block on a `crossterm` event, update state, redraw (no busy spin)
+- [x] 2.4 Add global key dispatch and a quit command (`ctrl+q`) that triggers clean teardown
+- [x] 2.5 Define the central `App` state struct as the single owner of all app state
 
 ## 3. Open and display a file (capability: text-editing)
 
