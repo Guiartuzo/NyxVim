@@ -45,6 +45,15 @@ impl EditorPane {
         }
     }
 
+    /// Point this pane at a different buffer, resetting the view state.
+    pub fn set_buffer(&mut self, buffer_id: usize) {
+        self.buffer_id = buffer_id;
+        self.cursor = Cursor::default();
+        self.anchor = None;
+        self.scroll_row = 0;
+        self.scroll_col = 0;
+    }
+
     // --- queries -----------------------------------------------------------
 
     pub fn has_selection(&self) -> bool {

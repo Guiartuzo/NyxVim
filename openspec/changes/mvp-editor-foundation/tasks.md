@@ -40,11 +40,11 @@
 
 ## 6. File tree sidebar (capability: file-tree)
 
-- [ ] 6.1 Add `walkdir`; build a directory tree model for the working directory
-- [ ] 6.2 Render the sidebar with directories distinguishable from files; reserve sidebar width in the layout
-- [ ] 6.3 Expand/collapse directories; maintain the list of visible entries
-- [ ] 6.4 Selection navigation (up/down) when the sidebar is focused; focus-sidebar command
-- [ ] 6.5 Activate a file entry to open it into the focused editor pane and move focus to that pane
+- [x] 6.1 Add `walkdir`; build a directory tree model for the working directory
+- [x] 6.2 Render the sidebar with directories distinguishable from files; reserve sidebar width in the layout
+- [x] 6.3 Expand/collapse directories; maintain the list of visible entries
+- [x] 6.4 Selection navigation (up/down) when the sidebar is focused; focus-sidebar command
+- [x] 6.5 Activate a file entry to open it into the focused editor pane and move focus to that pane
 
 ## 7. Syntax highlighting (capability: syntax-highlighting)
 

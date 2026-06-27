@@ -1,5 +1,6 @@
 mod app;
 mod buffer;
+mod file_tree;
 mod pane;
 mod terminal;
 
@@ -12,9 +13,10 @@ fn main() -> std::io::Result<()> {
         Some(path) => Buffer::from_path(path)?,
         None => Buffer::empty(),
     };
+    let root = std::env::current_dir()?;
 
     let mut tui = terminal::init()?;
-    let result = App::new(buffer).run(&mut tui);
+    let result = App::new(buffer, root).run(&mut tui);
     // Always restore the terminal, even if the run loop returned an error.
     terminal::restore()?;
     result
