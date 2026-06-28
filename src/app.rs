@@ -40,64 +40,60 @@ const SIDEBAR_WIDTH: u16 = 28;
 /// deliberate non-goal); the PTY resizes to whatever width it is given.
 const TERMINAL_AREA_WIDTH: u16 = 60;
 
-/// One keybinding, the single source of truth for both the footer hint and the
-/// help overlay (so they can't drift). `footer` holds a terse label when the
-/// binding should also appear in the bottom hint.
+/// One keybinding, the single source of truth for the help overlay.
 struct KeyBinding {
     group: &'static str,
     keys: &'static str,
     action: &'static str,
-    footer: Option<&'static str>,
 }
 
-/// All user-facing keybindings, grouped. The overlay renders every entry; the
-/// footer renders only those with a `footer` label.
+/// All user-facing keybindings, grouped. The help overlay (F1) renders them all.
 const BINDINGS: &[KeyBinding] = &[
-    KeyBinding { group: "Global", keys: "Ctrl+Q", action: "Quit", footer: Some("quit") },
-    KeyBinding { group: "Global", keys: "Ctrl+B", action: "Show / hide sidebar", footer: Some("sidebar") },
-    KeyBinding { group: "Global", keys: "Ctrl+J", action: "Show / hide terminal", footer: Some("term") },
-    KeyBinding { group: "Global", keys: "Ctrl+D", action: "Show / hide diff view", footer: Some("diff") },
-    KeyBinding { group: "Global", keys: "Ctrl+Shift+G", action: "Show / hide diff view (alias)", footer: None },
-    KeyBinding { group: "Global", keys: "F1", action: "Toggle this help", footer: Some("help") },
-    KeyBinding { group: "Global", keys: "Ctrl+K", action: "Focus file tree", footer: None },
-    KeyBinding { group: "Global", keys: "Ctrl+L", action: "Focus terminal", footer: None },
-    KeyBinding { group: "Global", keys: "Ctrl+O", action: "Focus code / editor", footer: None },
-    KeyBinding { group: "Editor", keys: "Arrows", action: "Move cursor", footer: None },
-    KeyBinding { group: "Editor", keys: "Shift+move", action: "Extend selection", footer: None },
-    KeyBinding { group: "Editor", keys: "Home / End", action: "Line start / end", footer: None },
-    KeyBinding { group: "Editor", keys: "PageUp / PageDown", action: "Move by a screenful", footer: None },
-    KeyBinding { group: "Editor", keys: "Ctrl+S", action: "Save", footer: Some("save") },
-    KeyBinding { group: "Editor", keys: "Ctrl+Z", action: "Undo", footer: Some("undo") },
-    KeyBinding { group: "Editor", keys: "Ctrl+Y", action: "Redo", footer: None },
-    KeyBinding { group: "Editor", keys: "Ctrl+F", action: "Find", footer: Some("find") },
-    KeyBinding { group: "Editor", keys: "Ctrl+G", action: "Go to line", footer: None },
-    KeyBinding { group: "Editor", keys: "Ctrl+P", action: "Fuzzy file finder", footer: Some("open") },
-    KeyBinding { group: "Editor", keys: "Ctrl+N", action: "Autocomplete word (Ctrl+Space alias)", footer: Some("complete") },
-    KeyBinding { group: "Editor", keys: "Up / Down", action: "Completion: previous / next", footer: None },
-    KeyBinding { group: "Editor", keys: "Tab / Enter", action: "Completion: accept", footer: None },
-    KeyBinding { group: "Editor", keys: "Esc", action: "Completion: dismiss", footer: None },
-    KeyBinding { group: "Editor", keys: "Ctrl+E", action: "Split pane vertically", footer: Some("split") },
-    KeyBinding { group: "Editor", keys: "Ctrl+\\", action: "Split pane (alias)", footer: None },
-    KeyBinding { group: "Editor", keys: "Ctrl+W", action: "Close pane", footer: Some("close") },
-    KeyBinding { group: "Editor", keys: "Alt+Left / Alt+Right", action: "Move focus between panes", footer: None },
-    KeyBinding { group: "Editor", keys: "Ctrl+Alt+Up / Down", action: "Add caret above / below", footer: None },
-    KeyBinding { group: "Editor", keys: "Alt+Shift+Up / Down", action: "Add caret above / below (alias)", footer: None },
-    KeyBinding { group: "Editor", keys: "Esc", action: "Collapse to a single caret", footer: None },
-    KeyBinding { group: "Terminal", keys: "Ctrl+T", action: "New terminal", footer: None },
-    KeyBinding { group: "Terminal", keys: "Alt+Left / Alt+Right", action: "Switch terminal", footer: None },
-    KeyBinding { group: "Terminal", keys: "Ctrl+W", action: "Close terminal", footer: None },
-    KeyBinding { group: "File finder", keys: "Up / Down", action: "Move selection", footer: None },
-    KeyBinding { group: "File finder", keys: "Enter", action: "Open selected file", footer: None },
-    KeyBinding { group: "File finder", keys: "Esc", action: "Dismiss", footer: None },
-    KeyBinding { group: "Sidebar", keys: "Up / Down", action: "Move selection", footer: None },
-    KeyBinding { group: "Sidebar", keys: "Left / Right", action: "Collapse / expand directory", footer: None },
-    KeyBinding { group: "Sidebar", keys: "Enter", action: "Open file / toggle directory", footer: None },
-    KeyBinding { group: "Diff view", keys: "Up / Down", action: "Select file / scroll diff", footer: None },
-    KeyBinding { group: "Diff view", keys: "Enter / Right", action: "Enter the diff", footer: None },
-    KeyBinding { group: "Diff view", keys: "Left", action: "Back to the file list", footer: None },
-    KeyBinding { group: "Diff view", keys: "n / p", action: "Next / previous change", footer: None },
-    KeyBinding { group: "Diff view", keys: "r", action: "Refresh", footer: None },
-    KeyBinding { group: "Diff view", keys: "Esc", action: "Close the diff view", footer: None },
+    KeyBinding { group: "Global", keys: "Ctrl+Q", action: "Quit" },
+    KeyBinding { group: "Global", keys: "Ctrl+B", action: "Show / hide sidebar" },
+    KeyBinding { group: "Global", keys: "Ctrl+J", action: "Show / hide terminal" },
+    KeyBinding { group: "Global", keys: "Ctrl+D", action: "Show / hide diff view" },
+    KeyBinding { group: "Global", keys: "Ctrl+Shift+G", action: "Show / hide diff view (alias)" },
+    KeyBinding { group: "Global", keys: "F1", action: "Toggle this help" },
+    KeyBinding { group: "Global", keys: "Ctrl+K", action: "Focus file tree" },
+    KeyBinding { group: "Global", keys: "Ctrl+L", action: "Focus terminal" },
+    KeyBinding { group: "Global", keys: "Ctrl+O", action: "Focus code / editor" },
+    KeyBinding { group: "Editor", keys: "Arrows", action: "Move cursor" },
+    KeyBinding { group: "Editor", keys: "Shift+move", action: "Extend selection" },
+    KeyBinding { group: "Editor", keys: "Home / End", action: "Line start / end" },
+    KeyBinding { group: "Editor", keys: "PageUp / PageDown", action: "Move by a screenful" },
+    KeyBinding { group: "Editor", keys: "Ctrl+S", action: "Save" },
+    KeyBinding { group: "Editor", keys: "Ctrl+Z", action: "Undo" },
+    KeyBinding { group: "Editor", keys: "Ctrl+Y", action: "Redo" },
+    KeyBinding { group: "Editor", keys: "Ctrl+F", action: "Find" },
+    KeyBinding { group: "Editor", keys: "Ctrl+G", action: "Go to line" },
+    KeyBinding { group: "Editor", keys: "Ctrl+P", action: "Fuzzy file finder" },
+    KeyBinding { group: "Editor", keys: "Ctrl+N", action: "Autocomplete word (Ctrl+Space alias)" },
+    KeyBinding { group: "Editor", keys: "Up / Down", action: "Completion: previous / next" },
+    KeyBinding { group: "Editor", keys: "Tab / Enter", action: "Completion: accept" },
+    KeyBinding { group: "Editor", keys: "Esc", action: "Completion: dismiss" },
+    KeyBinding { group: "Editor", keys: "Ctrl+E", action: "Split pane vertically" },
+    KeyBinding { group: "Editor", keys: "Ctrl+\\", action: "Split pane (alias)" },
+    KeyBinding { group: "Editor", keys: "Ctrl+W", action: "Close pane" },
+    KeyBinding { group: "Editor", keys: "Alt+Left / Alt+Right", action: "Move focus between panes" },
+    KeyBinding { group: "Editor", keys: "Ctrl+Alt+Up / Down", action: "Add caret above / below" },
+    KeyBinding { group: "Editor", keys: "Alt+Shift+Up / Down", action: "Add caret above / below (alias)" },
+    KeyBinding { group: "Editor", keys: "Esc", action: "Collapse to a single caret" },
+    KeyBinding { group: "Terminal", keys: "Ctrl+T", action: "New terminal" },
+    KeyBinding { group: "Terminal", keys: "Alt+Left / Alt+Right", action: "Switch terminal" },
+    KeyBinding { group: "Terminal", keys: "Ctrl+W", action: "Close terminal" },
+    KeyBinding { group: "File finder", keys: "Up / Down", action: "Move selection" },
+    KeyBinding { group: "File finder", keys: "Enter", action: "Open selected file" },
+    KeyBinding { group: "File finder", keys: "Esc", action: "Dismiss" },
+    KeyBinding { group: "Sidebar", keys: "Up / Down", action: "Move selection" },
+    KeyBinding { group: "Sidebar", keys: "Left / Right", action: "Collapse / expand directory" },
+    KeyBinding { group: "Sidebar", keys: "Enter", action: "Open file / toggle directory" },
+    KeyBinding { group: "Diff view", keys: "Up / Down", action: "Select file / scroll diff" },
+    KeyBinding { group: "Diff view", keys: "Enter / Right", action: "Enter the diff" },
+    KeyBinding { group: "Diff view", keys: "Left", action: "Back to the file list" },
+    KeyBinding { group: "Diff view", keys: "n / p", action: "Next / previous change" },
+    KeyBinding { group: "Diff view", keys: "r", action: "Refresh" },
+    KeyBinding { group: "Diff view", keys: "Esc", action: "Close the diff view" },
 ];
 
 /// An event delivered to the main loop, from input or from a terminal pane.
@@ -280,20 +276,24 @@ impl App {
     }
 
     fn render(&mut self, frame: &mut Frame) {
-        // A one-row keybinding hint sits at the very bottom; everything else
-        // fills the body above it.
-        let [body, footer] =
-            Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).areas(frame.area());
+        // The body fills the screen. A one-row prompt is carved off the bottom
+        // only while the minibuffer is open; otherwise the body uses every row.
+        let (body, prompt_row) = if self.minibuffer.is_some() {
+            let [body, prompt] =
+                Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).areas(frame.area());
+            (body, Some(prompt))
+        } else {
+            (frame.area(), None)
+        };
 
         // Copy the theme out so render code can borrow it freely while other
         // parts of `self` are borrowed mutably (it is `Copy`).
         let theme = self.theme;
 
-        // The diff view is modal: while open it claims the whole body (the
-        // footer still renders), so the editor layout below is skipped.
+        // The diff view is modal: while open it claims the whole body, so the
+        // editor layout below is skipped.
         if let Some(diff) = self.diff.as_mut() {
             diff.render(frame, body, &theme);
-            render_footer(frame, footer, &theme);
             return;
         }
 
@@ -359,18 +359,17 @@ impl App {
             render_completion_popup(frame, anchor, comp, &theme);
         }
 
-        // The minibuffer prompt takes over the bottom row while open, and owns
-        // the hardware cursor (the focused pane suppresses its own cursor then).
-        if let Some(mini) = &self.minibuffer {
+        // The minibuffer prompt takes over the reserved bottom row while open,
+        // and owns the hardware cursor (the focused pane suppresses its own
+        // cursor then).
+        if let (Some(mini), Some(prompt)) = (&self.minibuffer, prompt_row) {
             // The fuzzy file-finder draws its ranked results just above the
             // prompt row before the prompt itself takes the bottom line.
             if let Some(ff) = &self.file_finder {
-                render_file_finder_results(frame, footer, ff, &theme);
+                render_file_finder_results(frame, prompt, ff, &theme);
             }
-            let cx = mini.render(frame, footer, &theme);
-            frame.set_cursor_position((cx, footer.y));
-        } else {
-            render_footer(frame, footer, &theme);
+            let cx = mini.render(frame, prompt, &theme);
+            frame.set_cursor_position((cx, prompt.y));
         }
 
         if self.help_visible {
@@ -996,26 +995,6 @@ fn is_diff_toggle(key: &KeyEvent) -> bool {
         KeyCode::Char('d') if ctrl && !shift => true,
         _ => false,
     }
-}
-
-/// Render the bottom keybinding hint so the core chords are discoverable. Built
-/// from [`BINDINGS`] so it can never drift from the help overlay.
-fn render_footer(frame: &mut Frame, area: Rect, theme: &Theme) {
-    let mut hint = String::new();
-    for b in BINDINGS {
-        if let Some(label) = b.footer {
-            hint.push_str(&format!("  {} {} ", compact_keys(b.keys), label));
-        }
-    }
-    let style = Style::new().bg(theme.inactive_bg).fg(theme.text);
-    frame.render_widget(Paragraph::new(hint).style(style), area);
-}
-
-/// Compact a key string for the narrow footer (`Ctrl+Q` -> `^Q`).
-fn compact_keys(keys: &str) -> String {
-    keys.replace("Ctrl+", "^")
-        .replace("Shift+", "⇧")
-        .replace("Alt+", "M-")
 }
 
 /// Draw the keybinding help overlay centered over the screen. Modal: the caller
