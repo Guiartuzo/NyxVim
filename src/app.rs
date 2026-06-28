@@ -83,7 +83,7 @@ const BINDINGS: &[KeyBinding] = &[
     KeyBinding { group: "Editor", keys: "Alt+Shift+Up / Down", action: "Add caret above / below (alias)", footer: None },
     KeyBinding { group: "Editor", keys: "Esc", action: "Collapse to a single caret", footer: None },
     KeyBinding { group: "Terminal", keys: "Ctrl+T", action: "New terminal", footer: None },
-    KeyBinding { group: "Terminal", keys: "Ctrl+PageUp / PageDown", action: "Switch terminal", footer: None },
+    KeyBinding { group: "Terminal", keys: "Alt+Left / Alt+Right", action: "Switch terminal", footer: None },
     KeyBinding { group: "Terminal", keys: "Ctrl+W", action: "Close terminal", footer: None },
     KeyBinding { group: "File finder", keys: "Up / Down", action: "Move selection", footer: None },
     KeyBinding { group: "File finder", keys: "Enter", action: "Open selected file", footer: None },
@@ -541,12 +541,15 @@ impl App {
     /// cycle, close), otherwise forwarded to the active terminal's shell.
     fn on_terminal_key(&mut self, key: KeyEvent) {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        let alt = key.modifiers.contains(KeyModifiers::ALT);
 
         match key.code {
             KeyCode::Char('t') if ctrl => return self.spawn_terminal(),
             KeyCode::Char('w') if ctrl => return self.close_active_terminal(),
-            KeyCode::PageUp if ctrl => return self.terminal_area.cycle_prev(),
-            KeyCode::PageDown if ctrl => return self.terminal_area.cycle_next(),
+            // Cycle terminals with Alt+Left/Right, mirroring how the editor
+            // cycles panes — so the same chord switches "tabs" in either region.
+            KeyCode::Left if alt => return self.terminal_area.cycle_prev(),
+            KeyCode::Right if alt => return self.terminal_area.cycle_next(),
             _ => {}
         }
 
@@ -1386,6 +1389,20 @@ mod tests {
         assert!(!app.terminal_area.is_visible());
         assert!(app.terminal_area.is_empty());
         assert_eq!(app.focus, Focus::Editor);
+    }
+
+    #[test]
+    fn alt_left_right_cycle_terminals_when_focused() {
+        let mut app = test_app();
+        let _rx = with_terminals(&mut app);
+        app.spawn_terminal(); // id 0
+        app.spawn_terminal(); // id 1, active and focused
+        assert_eq!(app.focus, Focus::Terminal);
+        assert_eq!(app.terminal_area.active_mut().unwrap().id, 1);
+        app.on_key(press(KeyCode::Right, KeyModifiers::ALT)); // next, wraps to 0
+        assert_eq!(app.terminal_area.active_mut().unwrap().id, 0);
+        app.on_key(press(KeyCode::Left, KeyModifiers::ALT)); // prev, back to 1
+        assert_eq!(app.terminal_area.active_mut().unwrap().id, 1);
     }
 
     #[test]
