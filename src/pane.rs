@@ -8,7 +8,7 @@
 
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Color, Style};
+use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span, Text};
 use ratatui::widgets::Paragraph;
 
@@ -32,6 +32,28 @@ pub struct Cursor {
     pub target_col: usize,
 }
 
+/// A single caret: a cursor plus its optional selection anchor. The primary
+/// caret is stored as the pane's `cursor`/`anchor` fields (so the single-caret
+/// path is unchanged); additional carets live in `EditorPane::secondary`.
+#[derive(Debug, Clone, Copy)]
+struct Caret {
+    cursor: Cursor,
+    anchor: Option<(usize, usize)>,
+}
+
+impl Caret {
+    /// This caret's selection as an ordered (start, end) pair, if any.
+    fn ordered_selection(&self) -> Option<((usize, usize), (usize, usize))> {
+        let anchor = self.anchor?;
+        let cursor = (self.cursor.line, self.cursor.col);
+        Some(if anchor <= cursor {
+            (anchor, cursor)
+        } else {
+            (cursor, anchor)
+        })
+    }
+}
+
 /// Active incremental-search state for a pane: the match positions, which one
 /// is current, the cursor to restore on cancel, and the query's char length.
 #[derive(Debug)]
@@ -47,9 +69,12 @@ struct SearchState {
 pub struct EditorPane {
     pub buffer_id: usize,
     pub cursor: Cursor,
-    /// Selection anchor (line, col). The selection spans from here to the
-    /// cursor; `None` means no active selection.
+    /// Selection anchor (line, col) of the primary caret. The selection spans
+    /// from here to the cursor; `None` means no active selection.
     anchor: Option<(usize, usize)>,
+    /// Secondary carets for multi-cursor editing (empty in the common case).
+    /// The primary caret is `cursor`/`anchor` above; these are the extras.
+    secondary: Vec<Caret>,
     scroll_row: usize,
     scroll_col: usize,
     /// Height of the content region at the last render, used by page movement
@@ -68,6 +93,7 @@ impl EditorPane {
             buffer_id,
             cursor: Cursor::default(),
             anchor: None,
+            secondary: Vec::new(),
             scroll_row: 0,
             scroll_col: 0,
             last_height: 0,
@@ -81,6 +107,7 @@ impl EditorPane {
         self.buffer_id = buffer_id;
         self.cursor = Cursor::default();
         self.anchor = None;
+        self.secondary.clear();
         self.scroll_row = 0;
         self.scroll_col = 0;
         self.search = None;
@@ -107,111 +134,207 @@ impl EditorPane {
         buffer.line_len_chars(line)
     }
 
-    /// The selection as an ordered (start, end) pair, if any.
+    /// The primary caret's selection as an ordered (start, end) pair, if any.
     fn ordered_selection(&self) -> Option<((usize, usize), (usize, usize))> {
-        let anchor = self.anchor?;
-        let cursor = (self.cursor.line, self.cursor.col);
-        Some(if anchor <= cursor {
-            (anchor, cursor)
-        } else {
-            (cursor, anchor)
-        })
+        self.primary_caret().ordered_selection()
+    }
+
+    // --- carets ------------------------------------------------------------
+
+    /// The primary caret (its cursor + anchor) as a [`Caret`] value.
+    fn primary_caret(&self) -> Caret {
+        Caret {
+            cursor: self.cursor,
+            anchor: self.anchor,
+        }
+    }
+
+    /// Write a [`Caret`] back as the primary caret.
+    fn set_primary_caret(&mut self, c: Caret) {
+        self.cursor = c.cursor;
+        self.anchor = c.anchor;
+    }
+
+    /// Whether any secondary carets are present (multi-cursor is active).
+    pub fn has_secondary_carets(&self) -> bool {
+        !self.secondary.is_empty()
+    }
+
+    /// Apply `f` to every caret (primary first, then each secondary), then merge
+    /// any that became coincident. Used for movement: each caret moves on its
+    /// own and no buffer indices shift, so order does not matter.
+    fn apply_to_carets(&mut self, mut f: impl FnMut(&mut Caret)) {
+        let mut primary = self.primary_caret();
+        f(&mut primary);
+        self.set_primary_caret(primary);
+        for c in &mut self.secondary {
+            f(c);
+        }
+        self.dedup_merge_carets();
+    }
+
+    /// Sort the secondary carets by position and merge any coincident with the
+    /// primary or each other, always keeping the primary. A no-op while there
+    /// are no secondary carets, so the single-caret path is untouched.
+    fn dedup_merge_carets(&mut self) {
+        if self.secondary.is_empty() {
+            return;
+        }
+        let primary = (self.cursor.line, self.cursor.col);
+        self.secondary
+            .retain(|c| (c.cursor.line, c.cursor.col) != primary);
+        self.secondary.sort_by_key(|c| (c.cursor.line, c.cursor.col));
+        self.secondary.dedup_by_key(|c| (c.cursor.line, c.cursor.col));
+    }
+
+    /// The highest line index over all carets (primary + secondary).
+    fn max_caret_line(&self) -> usize {
+        self.secondary
+            .iter()
+            .map(|c| c.cursor.line)
+            .max()
+            .unwrap_or(self.cursor.line)
+            .max(self.cursor.line)
+    }
+
+    /// The lowest line index over all carets (primary + secondary).
+    fn min_caret_line(&self) -> usize {
+        self.secondary
+            .iter()
+            .map(|c| c.cursor.line)
+            .min()
+            .unwrap_or(self.cursor.line)
+            .min(self.cursor.line)
+    }
+
+    /// Add a caret one line below the bottom-most caret, at the primary caret's
+    /// target column (clamped to that line). A no-op at the last line.
+    pub fn add_caret_below(&mut self, buffer: &Buffer) {
+        let bottom = self.max_caret_line();
+        if bottom >= self.last_line(buffer) {
+            return;
+        }
+        self.push_caret(buffer, bottom + 1);
+    }
+
+    /// Add a caret one line above the top-most caret, at the primary caret's
+    /// target column (clamped to that line). A no-op at the first line.
+    pub fn add_caret_above(&mut self, buffer: &Buffer) {
+        let top = self.min_caret_line();
+        if top == 0 {
+            return;
+        }
+        self.push_caret(buffer, top - 1);
+    }
+
+    /// Push a new secondary caret onto `line` at the primary's target column.
+    fn push_caret(&mut self, buffer: &Buffer, line: usize) {
+        let col = self.cursor.target_col;
+        self.secondary.push(Caret {
+            cursor: Cursor {
+                line,
+                col: col.min(self.line_len(buffer, line)),
+                target_col: col,
+            },
+            anchor: None,
+        });
+        self.dedup_merge_carets();
+    }
+
+    /// Drop all secondary carets, leaving just the primary.
+    pub fn collapse_carets(&mut self) {
+        self.secondary.clear();
     }
 
     // --- movement ----------------------------------------------------------
 
-    /// Manage the selection anchor for a movement: extend keeps/sets the
-    /// anchor, a plain move collapses any selection.
-    fn pre_move(&mut self, extend: bool) {
-        if extend {
-            if self.anchor.is_none() {
-                self.anchor = Some((self.cursor.line, self.cursor.col));
-            }
-        } else {
-            self.anchor = None;
-        }
-    }
-
     pub fn move_left(&mut self, buffer: &Buffer, extend: bool) {
-        self.pre_move(extend);
-        if self.cursor.col > 0 {
-            self.cursor.col -= 1;
-        } else if self.cursor.line > 0 {
-            self.cursor.line -= 1;
-            self.cursor.col = self.line_len(buffer, self.cursor.line);
-        }
-        self.cursor.target_col = self.cursor.col;
+        self.apply_to_carets(|c| {
+            pre_move(c, extend);
+            if c.cursor.col > 0 {
+                c.cursor.col -= 1;
+            } else if c.cursor.line > 0 {
+                c.cursor.line -= 1;
+                c.cursor.col = buffer.line_len_chars(c.cursor.line);
+            }
+            c.cursor.target_col = c.cursor.col;
+        });
     }
 
     pub fn move_right(&mut self, buffer: &Buffer, extend: bool) {
-        self.pre_move(extend);
-        if self.cursor.col < self.line_len(buffer, self.cursor.line) {
-            self.cursor.col += 1;
-        } else if self.cursor.line < self.last_line(buffer) {
-            self.cursor.line += 1;
-            self.cursor.col = 0;
-        }
-        self.cursor.target_col = self.cursor.col;
+        let last = buffer.line_count() - 1;
+        self.apply_to_carets(|c| {
+            pre_move(c, extend);
+            if c.cursor.col < buffer.line_len_chars(c.cursor.line) {
+                c.cursor.col += 1;
+            } else if c.cursor.line < last {
+                c.cursor.line += 1;
+                c.cursor.col = 0;
+            }
+            c.cursor.target_col = c.cursor.col;
+        });
     }
 
     pub fn move_up(&mut self, buffer: &Buffer, extend: bool) {
-        self.pre_move(extend);
-        if self.cursor.line > 0 {
-            self.cursor.line -= 1;
-            self.cursor.col = self
-                .cursor
-                .target_col
-                .min(self.line_len(buffer, self.cursor.line));
-        }
+        self.apply_to_carets(|c| {
+            pre_move(c, extend);
+            if c.cursor.line > 0 {
+                c.cursor.line -= 1;
+                c.cursor.col = c.cursor.target_col.min(buffer.line_len_chars(c.cursor.line));
+            }
+        });
     }
 
     pub fn move_down(&mut self, buffer: &Buffer, extend: bool) {
-        self.pre_move(extend);
-        if self.cursor.line < self.last_line(buffer) {
-            self.cursor.line += 1;
-            self.cursor.col = self
-                .cursor
-                .target_col
-                .min(self.line_len(buffer, self.cursor.line));
-        }
+        let last = buffer.line_count() - 1;
+        self.apply_to_carets(|c| {
+            pre_move(c, extend);
+            if c.cursor.line < last {
+                c.cursor.line += 1;
+                c.cursor.col = c.cursor.target_col.min(buffer.line_len_chars(c.cursor.line));
+            }
+        });
     }
 
     /// Move to column zero of the current line (Home).
     pub fn move_line_start(&mut self, _buffer: &Buffer, extend: bool) {
-        self.pre_move(extend);
-        self.cursor.col = 0;
-        self.cursor.target_col = 0;
+        self.apply_to_carets(|c| {
+            pre_move(c, extend);
+            c.cursor.col = 0;
+            c.cursor.target_col = 0;
+        });
     }
 
     /// Move to the end of the current line (End).
     pub fn move_line_end(&mut self, buffer: &Buffer, extend: bool) {
-        self.pre_move(extend);
-        self.cursor.col = self.line_len(buffer, self.cursor.line);
-        self.cursor.target_col = self.cursor.col;
+        self.apply_to_carets(|c| {
+            pre_move(c, extend);
+            c.cursor.col = buffer.line_len_chars(c.cursor.line);
+            c.cursor.target_col = c.cursor.col;
+        });
     }
 
     /// Move up by roughly one viewport height (PageUp), keeping the target
     /// column. Uses the height cached at the last render.
     pub fn page_up(&mut self, buffer: &Buffer, extend: bool) {
-        self.pre_move(extend);
         let page = self.page_rows();
-        self.cursor.line = self.cursor.line.saturating_sub(page);
-        self.cursor.col = self
-            .cursor
-            .target_col
-            .min(self.line_len(buffer, self.cursor.line));
+        self.apply_to_carets(|c| {
+            pre_move(c, extend);
+            c.cursor.line = c.cursor.line.saturating_sub(page);
+            c.cursor.col = c.cursor.target_col.min(buffer.line_len_chars(c.cursor.line));
+        });
     }
 
     /// Move down by roughly one viewport height (PageDown), keeping the target
     /// column. Uses the height cached at the last render.
     pub fn page_down(&mut self, buffer: &Buffer, extend: bool) {
-        self.pre_move(extend);
+        let last = buffer.line_count() - 1;
         let page = self.page_rows();
-        self.cursor.line = (self.cursor.line + page).min(self.last_line(buffer));
-        self.cursor.col = self
-            .cursor
-            .target_col
-            .min(self.line_len(buffer, self.cursor.line));
+        self.apply_to_carets(|c| {
+            pre_move(c, extend);
+            c.cursor.line = (c.cursor.line + page).min(last);
+            c.cursor.col = c.cursor.target_col.min(buffer.line_len_chars(c.cursor.line));
+        });
     }
 
     /// Rows to jump for a page movement: the last-rendered content height, or a
@@ -239,6 +362,13 @@ impl EditorPane {
     }
 
     pub fn insert_char(&mut self, buffer: &mut Buffer, ch: char) {
+        if !self.secondary.is_empty() {
+            let text = ch.to_string();
+            return self.fan_out_edit(buffer, |c, b| {
+                let (s, e) = caret_remove_range(c, b);
+                (s, e, text.clone())
+            });
+        }
         buffer.begin_edit(buffer.char_idx(self.cursor.line, self.cursor.col));
         self.delete_selection(buffer);
         let idx = buffer.char_idx(self.cursor.line, self.cursor.col);
@@ -249,6 +379,12 @@ impl EditorPane {
     }
 
     pub fn insert_newline(&mut self, buffer: &mut Buffer) {
+        if !self.secondary.is_empty() {
+            return self.fan_out_edit(buffer, |c, b| {
+                let (s, e) = caret_remove_range(c, b);
+                (s, e, "\n".to_string())
+            });
+        }
         // A line break is its own undo step: close any run before it, and close
         // the newline group after so the next typing starts fresh.
         buffer.finalize();
@@ -264,6 +400,18 @@ impl EditorPane {
 
     /// Delete the character before the cursor, joining lines at a line start.
     pub fn backspace(&mut self, buffer: &mut Buffer) {
+        if !self.secondary.is_empty() {
+            return self.fan_out_edit(buffer, |c, b| match c.ordered_selection() {
+                Some((start, end)) => {
+                    (b.char_idx(start.0, start.1), b.char_idx(end.0, end.1), String::new())
+                }
+                None => {
+                    let idx = b.char_idx(c.cursor.line, c.cursor.col);
+                    let s = idx.saturating_sub(1);
+                    (s, idx, String::new())
+                }
+            });
+        }
         buffer.begin_edit(buffer.char_idx(self.cursor.line, self.cursor.col));
         if self.delete_selection(buffer) {
             return;
@@ -281,6 +429,19 @@ impl EditorPane {
 
     /// Delete the character at the cursor, joining lines at a line end.
     pub fn delete_forward(&mut self, buffer: &mut Buffer) {
+        if !self.secondary.is_empty() {
+            let len = buffer.len_chars();
+            return self.fan_out_edit(buffer, |c, b| match c.ordered_selection() {
+                Some((start, end)) => {
+                    (b.char_idx(start.0, start.1), b.char_idx(end.0, end.1), String::new())
+                }
+                None => {
+                    let idx = b.char_idx(c.cursor.line, c.cursor.col);
+                    let e = if idx < len { idx + 1 } else { idx };
+                    (idx, e, String::new())
+                }
+            });
+        }
         buffer.begin_edit(buffer.char_idx(self.cursor.line, self.cursor.col));
         if self.delete_selection(buffer) {
             return;
@@ -289,6 +450,59 @@ impl EditorPane {
         if idx < buffer.len_chars() {
             buffer.remove(idx, idx + 1);
         }
+    }
+
+    /// Apply one planned edit per caret as a single batch, then re-place every
+    /// caret. `plan(caret, buffer)` returns `(remove_start, remove_end,
+    /// insert_text)` as char indices against the *current* buffer. Edits are
+    /// applied low-to-high with a running offset so positions stay correct
+    /// across length changes and newlines; each caret lands just past its
+    /// inserted text with its selection cleared.
+    fn fan_out_edit(
+        &mut self,
+        buffer: &mut Buffer,
+        mut plan: impl FnMut(&Caret, &Buffer) -> (usize, usize, String),
+    ) {
+        // Slot 0 is the primary caret; the rest are the secondaries in order.
+        let mut carets: Vec<Caret> = Vec::with_capacity(1 + self.secondary.len());
+        carets.push(self.primary_caret());
+        carets.extend(self.secondary.iter().copied());
+
+        let mut planned: Vec<(usize, (usize, usize, String))> = carets
+            .iter()
+            .enumerate()
+            .map(|(i, c)| (i, plan(c, buffer)))
+            .collect();
+        planned.sort_by_key(|(_, (s, _, _))| *s);
+
+        buffer.finalize();
+        let mut delta: isize = 0;
+        let mut new_pos = vec![0usize; carets.len()];
+        for (slot, (s, e, text)) in &planned {
+            let s2 = (*s as isize + delta) as usize;
+            let e2 = (*e as isize + delta) as usize;
+            buffer.begin_edit(s2);
+            if s2 < e2 {
+                buffer.remove(s2, e2);
+            }
+            if !text.is_empty() {
+                buffer.insert(s2, text);
+            }
+            new_pos[*slot] = s2 + text.chars().count();
+            delta += text.chars().count() as isize - (*e as isize - *s as isize);
+        }
+        buffer.finalize();
+
+        for (i, c) in carets.iter_mut().enumerate() {
+            let (line, col) = buffer.line_col(new_pos[i]);
+            c.cursor.line = line;
+            c.cursor.col = col;
+            c.cursor.target_col = col;
+            c.anchor = None;
+        }
+        self.set_primary_caret(carets[0]);
+        self.secondary = carets[1..].to_vec();
+        self.dedup_merge_carets();
     }
 
     /// Undo the last edit group on `buffer`, moving this pane's cursor to the
@@ -309,14 +523,15 @@ impl EditorPane {
         }
     }
 
-    /// Place the cursor at buffer char index `idx` and clear the selection,
-    /// shared by undo and redo.
+    /// Place the cursor at buffer char index `idx`, clear the selection, and
+    /// collapse to a single caret, shared by undo and redo.
     fn move_to_edit(&mut self, buffer: &Buffer, idx: usize) {
         let (line, col) = buffer.line_col(idx);
         self.cursor.line = line;
         self.cursor.col = col;
         self.cursor.target_col = col;
         self.anchor = None;
+        self.secondary.clear();
     }
 
     // --- search & go-to-line -----------------------------------------------
@@ -521,11 +736,14 @@ impl EditorPane {
             }
         }
 
-        // Paint the selection over the text (after the current-line tint so the
-        // selected span wins where they overlap).
-        if let Some((sel_start, sel_end)) = self.ordered_selection() {
+        // Paint selections over the text (after the current-line tint so the
+        // selected span wins where they overlap). Every caret — primary and
+        // secondary — contributes its own selection.
+        let scroll_row = self.scroll_row;
+        let scroll_col = self.scroll_col;
+        let paint_selection = |frame: &mut Frame, sel_start: (usize, usize), sel_end: (usize, usize)| {
             for row in 0..height {
-                let line_idx = self.scroll_row + row;
+                let line_idx = scroll_row + row;
                 if line_idx < sel_start.0 || line_idx > sel_end.0 {
                     continue;
                 }
@@ -535,13 +753,13 @@ impl EditorPane {
                 let end_col = if line_idx == sel_end.0 {
                     sel_end.1
                 } else {
-                    self.line_len(buffer, line_idx) + 1
+                    buffer.line_len_chars(line_idx) + 1
                 };
-                let vis_start = start_col.max(self.scroll_col);
+                let vis_start = start_col.max(scroll_col);
                 if end_col <= vis_start {
                     continue;
                 }
-                let sx = content.x + (vis_start - self.scroll_col) as u16;
+                let sx = content.x + (vis_start - scroll_col) as u16;
                 let avail = content.width.saturating_sub(sx - content.x);
                 let w = ((end_col - vis_start) as u16).min(avail);
                 if w == 0 {
@@ -552,6 +770,32 @@ impl EditorPane {
                     .buffer_mut()
                     .set_style(rect, Style::new().bg(SELECTION_BG));
             }
+        };
+        if let Some((s, e)) = self.ordered_selection() {
+            paint_selection(frame, s, e);
+        }
+        for caret in &self.secondary {
+            if let Some((s, e)) = caret.ordered_selection() {
+                paint_selection(frame, s, e);
+            }
+        }
+
+        // Paint each secondary caret as a reversed cell. A terminal has only one
+        // hardware cursor (kept on the primary caret below), so the extras are
+        // drawn in.
+        for caret in &self.secondary {
+            if caret.cursor.line < scroll_row || caret.cursor.col < scroll_col {
+                continue;
+            }
+            let row = caret.cursor.line - scroll_row;
+            let col = caret.cursor.col - scroll_col;
+            if row >= height || col >= width {
+                continue;
+            }
+            let rect = Rect::new(content.x + col as u16, content.y + row as u16, 1, 1);
+            frame
+                .buffer_mut()
+                .set_style(rect, Style::new().add_modifier(Modifier::REVERSED));
         }
 
         if focused {
@@ -612,6 +856,33 @@ fn highlight_line(text: &str, syntax: Option<&Syntax>) -> Line<'static> {
         out.push(Span::raw(text[cursor..].to_string()));
     }
     Line::from(out)
+}
+
+/// Manage a caret's selection anchor for a movement: extend keeps/sets the
+/// anchor, a plain move collapses any selection.
+fn pre_move(caret: &mut Caret, extend: bool) {
+    if extend {
+        if caret.anchor.is_none() {
+            caret.anchor = Some((caret.cursor.line, caret.cursor.col));
+        }
+    } else {
+        caret.anchor = None;
+    }
+}
+
+/// The half-open char range a caret's edit removes first: its selection if any,
+/// otherwise an empty range at the cursor (a pure insertion point).
+fn caret_remove_range(caret: &Caret, buffer: &Buffer) -> (usize, usize) {
+    match caret.ordered_selection() {
+        Some((start, end)) => (
+            buffer.char_idx(start.0, start.1),
+            buffer.char_idx(end.0, end.1),
+        ),
+        None => {
+            let idx = buffer.char_idx(caret.cursor.line, caret.cursor.col);
+            (idx, idx)
+        }
+    }
 }
 
 /// All `(line, col)` starts where `query` matches case-insensitively (ASCII
@@ -1072,5 +1343,139 @@ mod tests {
         assert_eq!(p.cursor.line, 3);
         p.goto_line(&b, 1);
         assert_eq!(p.cursor.line, 0);
+    }
+
+    // --- multi-cursor ------------------------------------------------------
+
+    /// A secondary caret at `(line, col)` with no selection.
+    fn caret_at(line: usize, col: usize) -> Caret {
+        Caret {
+            cursor: Cursor { line, col, target_col: col },
+            anchor: None,
+        }
+    }
+
+    #[test]
+    fn add_caret_below_and_above_place_carets_and_stop_at_edges() {
+        let (mut p, b) = setup("aaa\nbbb\nccc");
+        p.cursor.col = 1;
+        p.cursor.target_col = 1;
+        p.add_caret_below(&b);
+        p.add_caret_below(&b);
+        assert_eq!(p.secondary.len(), 2);
+        assert_eq!((p.secondary[0].cursor.line, p.secondary[0].cursor.col), (1, 1));
+        assert_eq!((p.secondary[1].cursor.line, p.secondary[1].cursor.col), (2, 1));
+        // below the last line is a no-op
+        p.add_caret_below(&b);
+        assert_eq!(p.secondary.len(), 2);
+    }
+
+    #[test]
+    fn add_caret_above_is_a_noop_at_the_top() {
+        let (mut p, b) = setup("aaa\nbbb");
+        p.cursor.line = 0;
+        p.add_caret_above(&b);
+        assert!(p.secondary.is_empty());
+    }
+
+    #[test]
+    fn caret_clamps_column_to_a_short_line() {
+        let (mut p, b) = setup("longline\nab");
+        p.cursor.col = 6;
+        p.cursor.target_col = 6;
+        p.add_caret_below(&b); // line "ab" is only 2 long
+        assert_eq!((p.secondary[0].cursor.line, p.secondary[0].cursor.col), (1, 2));
+        assert_eq!(p.secondary[0].cursor.target_col, 6); // remembered
+    }
+
+    #[test]
+    fn typing_fans_out_to_carets_on_different_lines() {
+        let (mut p, mut b) = setup("aaa\nbbb\nccc");
+        p.cursor.col = 0;
+        p.add_caret_below(&b);
+        p.add_caret_below(&b);
+        p.insert_char(&mut b, 'X');
+        assert_eq!(b.line_text(0), "Xaaa");
+        assert_eq!(b.line_text(1), "Xbbb");
+        assert_eq!(b.line_text(2), "Xccc");
+        assert_eq!(p.cursor.col, 1);
+        assert!(p.secondary.iter().all(|c| c.cursor.col == 1));
+    }
+
+    #[test]
+    fn typing_at_two_carets_on_the_same_line_is_ordered_correctly() {
+        // The ordering guard: edits must apply low-to-high without corrupting
+        // the not-yet-applied positions.
+        let (mut p, mut b) = setup("abcd");
+        p.cursor.col = 1;
+        p.cursor.target_col = 1;
+        p.secondary.push(caret_at(0, 3));
+        p.insert_char(&mut b, '-');
+        assert_eq!(b.line_text(0), "a-bc-d");
+    }
+
+    #[test]
+    fn backspace_fans_out_to_all_carets() {
+        let (mut p, mut b) = setup("aXa\nbXb");
+        p.cursor.line = 0;
+        p.cursor.col = 2;
+        p.cursor.target_col = 2;
+        p.secondary.push(caret_at(1, 2));
+        p.backspace(&mut b);
+        assert_eq!(b.line_text(0), "aa");
+        assert_eq!(b.line_text(1), "bb");
+    }
+
+    #[test]
+    fn newline_at_multiple_carets_splits_each_line() {
+        let (mut p, mut b) = setup("ab\ncd");
+        p.cursor.line = 0;
+        p.cursor.col = 1;
+        p.cursor.target_col = 1;
+        p.secondary.push(caret_at(1, 1));
+        p.insert_newline(&mut b);
+        assert_eq!(b.line_count(), 4);
+        assert_eq!(b.line_text(0), "a");
+        assert_eq!(b.line_text(1), "b");
+        assert_eq!(b.line_text(2), "c");
+        assert_eq!(b.line_text(3), "d");
+    }
+
+    #[test]
+    fn shift_move_extends_a_selection_at_every_caret() {
+        let (mut p, b) = setup("aaaa\nbbbb");
+        p.cursor.col = 0;
+        p.add_caret_below(&b);
+        p.move_right(&b, true);
+        p.move_right(&b, true);
+        assert!(p.has_selection());
+        assert!(p.secondary[0].anchor.is_some());
+        assert_eq!(p.cursor.col, 2);
+        assert_eq!(p.secondary[0].cursor.col, 2);
+    }
+
+    #[test]
+    fn collapse_drops_secondary_carets() {
+        let (mut p, b) = setup("aa\nbb\ncc");
+        p.add_caret_below(&b);
+        p.add_caret_below(&b);
+        assert!(p.has_secondary_carets());
+        p.collapse_carets();
+        assert!(!p.has_secondary_carets());
+    }
+
+    #[test]
+    fn coincident_carets_merge_after_movement() {
+        let (mut p, b) = setup("ab\ncd");
+        p.cursor.line = 0;
+        p.cursor.col = 1;
+        p.cursor.target_col = 1;
+        p.add_caret_below(&b); // secondary at (1,1)
+        assert_eq!(p.secondary.len(), 1);
+        // move all carets down: primary -> (1,1); the secondary is clamped at the
+        // last line and stays (1,1), so they coincide and merge.
+        p.move_down(&b, false);
+        assert!(p.secondary.is_empty());
+        assert_eq!((p.cursor.line, p.cursor.col), (1, 1));
     }
 }

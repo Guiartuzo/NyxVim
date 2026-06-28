@@ -79,6 +79,9 @@ const BINDINGS: &[KeyBinding] = &[
     KeyBinding { group: "Editor", keys: "Ctrl+\\", action: "Split pane (alias)", footer: None },
     KeyBinding { group: "Editor", keys: "Ctrl+W", action: "Close pane", footer: Some("close") },
     KeyBinding { group: "Editor", keys: "Alt+Left / Alt+Right", action: "Move focus between panes", footer: None },
+    KeyBinding { group: "Editor", keys: "Ctrl+Alt+Up / Down", action: "Add caret above / below", footer: None },
+    KeyBinding { group: "Editor", keys: "Alt+Shift+Up / Down", action: "Add caret above / below (alias)", footer: None },
+    KeyBinding { group: "Editor", keys: "Esc", action: "Collapse to a single caret", footer: None },
     KeyBinding { group: "Terminal", keys: "Ctrl+T", action: "New terminal", footer: None },
     KeyBinding { group: "Terminal", keys: "Ctrl+PageUp / PageDown", action: "Switch terminal", footer: None },
     KeyBinding { group: "Terminal", keys: "Ctrl+W", action: "Close terminal", footer: None },
@@ -475,6 +478,7 @@ impl App {
     fn on_pane_key(&mut self, key: KeyEvent) {
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
         let alt = key.modifiers.contains(KeyModifiers::ALT);
+        let shift = key.modifiers.contains(KeyModifiers::SHIFT);
 
         // While the completion popup is open it is semi-modal: navigate, accept,
         // and dismiss are intercepted here — before `dispatch_editor` — so `Tab`
@@ -489,7 +493,19 @@ impl App {
             }
         }
 
+        // Esc collapses a multi-cursor selection back to the primary caret,
+        // before anything else handles it (Esc is otherwise inert in the editor).
+        if key.code == KeyCode::Esc && self.panes[self.focused].has_secondary_carets() {
+            return self.panes[self.focused].collapse_carets();
+        }
+
         match key.code {
+            // Multi-cursor: add a caret on the line above / below. `Ctrl+Alt`
+            // is the VSCode-style primary; `Alt+Shift` is an alias for terminals
+            // that deliver it more reliably. Matched before the plain arrow keys
+            // reach `dispatch_editor` so they don't just move the cursor.
+            KeyCode::Up if alt && (ctrl || shift) => return self.add_caret_above(),
+            KeyCode::Down if alt && (ctrl || shift) => return self.add_caret_below(),
             // Primary split chord. `ctrl+e` is layout-independent and reachable
             // (e.g. on ABNT, where `ctrl+\` is impractical); `ctrl+\` stays as
             // a secondary alias.
@@ -613,6 +629,24 @@ impl App {
         let buffer_id = self.panes[self.focused].buffer_id;
         self.panes.insert(self.focused + 1, EditorPane::new(buffer_id));
         self.focused += 1;
+    }
+
+    /// Add a secondary caret one line above the top-most caret of the focused
+    /// pane (multi-cursor editing).
+    fn add_caret_above(&mut self) {
+        self.completion = None;
+        let ed = &mut self.panes[self.focused];
+        let buffer = &self.buffers[ed.buffer_id];
+        ed.add_caret_above(buffer);
+    }
+
+    /// Add a secondary caret one line below the bottom-most caret of the focused
+    /// pane (multi-cursor editing).
+    fn add_caret_below(&mut self) {
+        self.completion = None;
+        let ed = &mut self.panes[self.focused];
+        let buffer = &self.buffers[ed.buffer_id];
+        ed.add_caret_below(buffer);
     }
 
     /// Close the focused editor pane, unless it is the last one.
@@ -1698,6 +1732,30 @@ mod tests {
         assert_eq!(app.buffers.len(), before);
         assert_eq!(app.focus, Focus::Editor);
         std::fs::remove_dir_all(&dir).ok();
+    }
+
+    // --- multi-cursor ------------------------------------------------------
+
+    #[test]
+    fn ctrl_alt_down_adds_caret_typing_fans_out_and_esc_collapses() {
+        let mut app = app_with("aaa\nbbb\nccc");
+        // primary at (0,0); add a caret below, then type into both
+        app.on_key(press(KeyCode::Down, KeyModifiers::CONTROL | KeyModifiers::ALT));
+        assert!(app.panes[0].has_secondary_carets());
+        app.on_key(press(KeyCode::Char('X'), KeyModifiers::NONE));
+        assert_eq!(app.buffers[0].line_text(0), "Xaaa");
+        assert_eq!(app.buffers[0].line_text(1), "Xbbb");
+        // Esc collapses back to one caret without quitting/editing
+        app.on_key(press(KeyCode::Esc, KeyModifiers::NONE));
+        assert!(!app.panes[0].has_secondary_carets());
+        assert_eq!(app.focus, Focus::Editor);
+    }
+
+    #[test]
+    fn alt_shift_down_is_an_add_caret_alias() {
+        let mut app = app_with("aaa\nbbb");
+        app.on_key(press(KeyCode::Down, KeyModifiers::ALT | KeyModifiers::SHIFT));
+        assert!(app.panes[0].has_secondary_carets());
     }
 
     #[test]
