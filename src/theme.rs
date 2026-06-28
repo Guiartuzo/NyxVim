@@ -56,35 +56,35 @@ pub struct Theme {
 
 impl Default for Theme {
     /// The default theme: a Charm / Bubble Tea-inspired palette — hot-magenta
-    /// accent, purple focus, soft-slate borders and muted text — over a
-    /// Dracula-adjacent set of greens/reds for diffs. Truecolor `Rgb` values;
-    /// the whole look is determined here (and in [`Theme::border_type`]), so it
-    /// can be reverted as one isolated change without touching any call site.
+    /// accent, teal selection, blue-grey borders and muted text — over green/red
+    /// diffs (the `systemctl-tui` direction). Truecolor `Rgb` values; the whole
+    /// look is determined here (and in [`Theme::border_type`]), so it can be
+    /// reverted as one isolated change without touching any call site.
     fn default() -> Self {
         Self {
-            text: Color::Rgb(248, 248, 242),       // off-white
-            text_muted: Color::Rgb(98, 114, 164),  // soft slate
-            accent: Color::Rgb(255, 6, 183),       // hot magenta (Charm)
-            border: Color::Rgb(98, 114, 164),       // soft slate
-            cursor_line: Color::Rgb(40, 42, 54),    // subtle dark tint
-            selection: Color::Rgb(68, 71, 90),      // muted slate-blue
-            focus_fg: Color::Rgb(248, 248, 242),    // off-white
-            focus_bg: Color::Rgb(125, 86, 244),     // purple (Charm)
-            inactive_fg: Color::Rgb(98, 114, 164),  // soft slate
-            inactive_bg: Color::Rgb(68, 71, 90),    // muted slate-blue
-            prompt_bg: Color::Rgb(30, 31, 42),       // near-black slate
+            text: Color::Rgb(236, 239, 244),       // off-white
+            text_muted: Color::Rgb(98, 114, 164),  // blue-grey
+            accent: Color::Rgb(45, 212, 191),      // teal
+            border: Color::Rgb(98, 114, 164),       // blue-grey
+            cursor_line: Color::Rgb(30, 38, 44),    // subtle dark teal tint
+            selection: Color::Rgb(45, 66, 70),      // muted teal (editor text sel)
+            focus_fg: Color::Rgb(236, 239, 244),    // off-white (kept light)
+            focus_bg: Color::Rgb(42, 161, 152),     // teal selection bar
+            inactive_fg: Color::Rgb(98, 114, 164),  // blue-grey
+            inactive_bg: Color::Rgb(54, 62, 74),    // muted slate
+            prompt_bg: Color::Rgb(20, 26, 30),       // near-black teal-slate
             diff_add_fg: Color::Rgb(80, 250, 123),  // green
             diff_add_bg: Color::Rgb(25, 55, 35),     // dark green
             diff_del_fg: Color::Rgb(255, 85, 85),    // red
             diff_del_bg: Color::Rgb(60, 25, 30),     // dark red
-            diff_gap_bg: Color::Rgb(24, 25, 34),     // darker gap fill
+            diff_gap_bg: Color::Rgb(18, 22, 26),     // darker gap fill
         }
     }
 }
 
 impl Theme {
     /// Border style for bordered blocks. A single themed choice so the whole
-    /// editor's border look lives in one place — rounded, for the Charm feel.
+    /// editor's border look lives in one place — rounded, for soft framed chrome.
     pub fn border_type(&self) -> BorderType {
         BorderType::Rounded
     }
