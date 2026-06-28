@@ -21,6 +21,7 @@ use ratatui::text::{Line, Text};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
 use crate::buffer::Buffer;
+use crate::diff_view::DiffView;
 use crate::file_tree::FileTree;
 use crate::minibuffer::{MiniMode, Minibuffer};
 use crate::pane::EditorPane;
@@ -52,6 +53,8 @@ const BINDINGS: &[KeyBinding] = &[
     KeyBinding { group: "Global", keys: "Ctrl+Q", action: "Quit", footer: Some("quit") },
     KeyBinding { group: "Global", keys: "Ctrl+B", action: "Show / hide sidebar", footer: Some("sidebar") },
     KeyBinding { group: "Global", keys: "Ctrl+J", action: "Show / hide terminal", footer: Some("term") },
+    KeyBinding { group: "Global", keys: "Ctrl+D", action: "Show / hide diff view", footer: Some("diff") },
+    KeyBinding { group: "Global", keys: "Ctrl+Shift+G", action: "Show / hide diff view (alias)", footer: None },
     KeyBinding { group: "Global", keys: "F1", action: "Toggle this help", footer: Some("help") },
     KeyBinding { group: "Editor", keys: "Arrows", action: "Move cursor", footer: None },
     KeyBinding { group: "Editor", keys: "Shift+move", action: "Extend selection", footer: None },
@@ -72,6 +75,12 @@ const BINDINGS: &[KeyBinding] = &[
     KeyBinding { group: "Sidebar", keys: "Up / Down", action: "Move selection", footer: None },
     KeyBinding { group: "Sidebar", keys: "Left / Right", action: "Collapse / expand directory", footer: None },
     KeyBinding { group: "Sidebar", keys: "Enter", action: "Open file / toggle directory", footer: None },
+    KeyBinding { group: "Diff view", keys: "Up / Down", action: "Select file / scroll diff", footer: None },
+    KeyBinding { group: "Diff view", keys: "Enter / Right", action: "Enter the diff", footer: None },
+    KeyBinding { group: "Diff view", keys: "Left", action: "Back to the file list", footer: None },
+    KeyBinding { group: "Diff view", keys: "n / p", action: "Next / previous change", footer: None },
+    KeyBinding { group: "Diff view", keys: "r", action: "Refresh", footer: None },
+    KeyBinding { group: "Diff view", keys: "Esc", action: "Close the diff view", footer: None },
 ];
 
 /// An event delivered to the main loop, from input or from a terminal pane.
@@ -89,6 +98,7 @@ enum Focus {
     Editor,
     Terminal,
     Minibuffer,
+    Diff,
 }
 
 /// Central application state — the single owner of everything NyxVim tracks.
@@ -109,6 +119,9 @@ pub struct App {
     terminal_area: TerminalArea,
     /// The active minibuffer prompt (search / go-to-line), if any.
     minibuffer: Option<Minibuffer>,
+    /// The diff view, if open. While `Some` it claims the body and captures
+    /// input (read-only — it never edits a buffer).
+    diff: Option<DiffView>,
     tree: FileTree,
     focus: Focus,
     /// Sender for spawning terminal panes; set once the loop starts.
@@ -133,6 +146,7 @@ impl App {
             focused: 0,
             terminal_area: TerminalArea::new(),
             minibuffer: None,
+            diff: None,
             tree: FileTree::new(root),
             focus: Focus::Editor,
             event_tx: None,
@@ -190,6 +204,14 @@ impl App {
         // fills the body above it.
         let [body, footer] =
             Layout::vertical([Constraint::Min(1), Constraint::Length(1)]).areas(frame.area());
+
+        // The diff view is modal: while open it claims the whole body (the
+        // footer still renders), so the editor layout below is skipped.
+        if let Some(diff) = self.diff.as_mut() {
+            diff.render(frame, body);
+            render_footer(frame, footer);
+            return;
+        }
 
         // Sidebar on the left when visible; otherwise the main area fills the
         // whole body.
@@ -289,9 +311,26 @@ impl App {
 
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
 
+        // The diff view is modal: while open, quit still works and the toggle
+        // closes it; every other key is routed to the (read-only) view.
+        if self.diff.is_some() {
+            if ctrl && key.code == KeyCode::Char('q') {
+                self.should_quit = true;
+            } else if is_diff_toggle(&key) || key.code == KeyCode::Esc {
+                self.close_diff_view();
+            } else {
+                self.on_diff_key(key);
+            }
+            return;
+        }
+
         match key.code {
             KeyCode::Char('q') if ctrl => {
                 self.should_quit = true;
+                return;
+            }
+            _ if is_diff_toggle(&key) => {
+                self.open_diff_view();
                 return;
             }
             KeyCode::Char('b') if ctrl => {
@@ -309,8 +348,8 @@ impl App {
             Focus::Sidebar => self.on_sidebar_key(key),
             Focus::Editor => self.on_pane_key(key),
             Focus::Terminal => self.on_terminal_key(key),
-            // Handled at the top of on_key while a prompt is open.
-            Focus::Minibuffer => {}
+            // Both handled at the top of on_key while their surface is open.
+            Focus::Minibuffer | Focus::Diff => {}
         }
     }
 
@@ -562,6 +601,52 @@ impl App {
         self.focus = Focus::Editor;
     }
 
+    // --- diff view ---------------------------------------------------------
+
+    /// Open the diff view, snapshotting git state, and route input to it.
+    fn open_diff_view(&mut self) {
+        self.diff = Some(DiffView::open());
+        self.focus = Focus::Diff;
+    }
+
+    /// Close the diff view and return focus to the editor, buffers untouched.
+    fn close_diff_view(&mut self) {
+        self.diff = None;
+        self.focus = Focus::Editor;
+    }
+
+    /// Keys while the diff view is open (read-only). List focus: Up/Down select
+    /// a file (its diff reloads), Enter/Right step into the diff. Diff focus:
+    /// scroll, `n`/`p` jump between changes, Left returns to the list. `r`
+    /// refreshes from git in either case.
+    fn on_diff_key(&mut self, key: KeyEvent) {
+        let Some(diff) = self.diff.as_mut() else {
+            return;
+        };
+        if key.code == KeyCode::Char('r') {
+            return diff.refresh();
+        }
+        if diff.focus_in_list() {
+            match key.code {
+                KeyCode::Up => diff.select_prev(),
+                KeyCode::Down => diff.select_next(),
+                KeyCode::Enter | KeyCode::Right => diff.enter_diff(),
+                _ => {}
+            }
+        } else {
+            match key.code {
+                KeyCode::Up => diff.scroll_up(),
+                KeyCode::Down => diff.scroll_down(),
+                KeyCode::PageUp => diff.page_up(),
+                KeyCode::PageDown => diff.page_down(),
+                KeyCode::Char('n') => diff.next_hunk(),
+                KeyCode::Char('p') => diff.prev_hunk(),
+                KeyCode::Left => diff.back_to_list(),
+                _ => {}
+            }
+        }
+    }
+
     /// Deliver shell output to the matching terminal, even when the area is
     /// hidden — its grid stays current so showing it reveals up-to-date output.
     fn feed_terminal(&mut self, id: usize, bytes: &[u8]) {
@@ -593,6 +678,20 @@ impl App {
     }
 }
 
+/// Whether `key` is the diff-view toggle. `Ctrl+D` is the primary chord because
+/// it is reliably delivered everywhere; `Ctrl+Shift+G` (VSCode's source-control
+/// shortcut, "git" mnemonic) is an alias for terminals that support the Kitty
+/// keyboard protocol — VTE/gnome-terminal can't distinguish it from `Ctrl+G`.
+fn is_diff_toggle(key: &KeyEvent) -> bool {
+    let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+    let shift = key.modifiers.contains(KeyModifiers::SHIFT);
+    match key.code {
+        KeyCode::Char('g' | 'G') if ctrl && shift => true,
+        KeyCode::Char('d') if ctrl && !shift => true,
+        _ => false,
+    }
+}
+
 /// Render the bottom keybinding hint so the core chords are discoverable. Built
 /// from [`BINDINGS`] so it can never drift from the help overlay.
 fn render_footer(frame: &mut Frame, area: Rect) {
@@ -608,7 +707,9 @@ fn render_footer(frame: &mut Frame, area: Rect) {
 
 /// Compact a key string for the narrow footer (`Ctrl+Q` -> `^Q`).
 fn compact_keys(keys: &str) -> String {
-    keys.replace("Ctrl+", "^").replace("Alt+", "M-")
+    keys.replace("Ctrl+", "^")
+        .replace("Shift+", "⇧")
+        .replace("Alt+", "M-")
 }
 
 /// Draw the keybinding help overlay centered over the screen. Modal: the caller

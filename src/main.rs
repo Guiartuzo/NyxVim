@@ -1,6 +1,8 @@
 mod app;
 mod buffer;
+mod diff_view;
 mod file_tree;
+mod git;
 mod minibuffer;
 mod pane;
 mod syntax;
