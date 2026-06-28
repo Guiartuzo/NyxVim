@@ -57,6 +57,9 @@ const BINDINGS: &[KeyBinding] = &[
     KeyBinding { group: "Global", keys: "Ctrl+D", action: "Show / hide diff view", footer: Some("diff") },
     KeyBinding { group: "Global", keys: "Ctrl+Shift+G", action: "Show / hide diff view (alias)", footer: None },
     KeyBinding { group: "Global", keys: "F1", action: "Toggle this help", footer: Some("help") },
+    KeyBinding { group: "Global", keys: "Ctrl+K", action: "Focus file tree", footer: None },
+    KeyBinding { group: "Global", keys: "Ctrl+L", action: "Focus terminal", footer: None },
+    KeyBinding { group: "Global", keys: "Ctrl+O", action: "Focus code / editor", footer: None },
     KeyBinding { group: "Editor", keys: "Arrows", action: "Move cursor", footer: None },
     KeyBinding { group: "Editor", keys: "Shift+move", action: "Extend selection", footer: None },
     KeyBinding { group: "Editor", keys: "Home / End", action: "Line start / end", footer: None },
@@ -328,6 +331,21 @@ impl App {
 
         let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
 
+        // Global focus-jump chords: move focus to a named region (revealing it
+        // if hidden) without toggling visibility. Handled before the diff guard
+        // and per-region routing so they work from any region — including
+        // escaping a focused terminal or the modal diff view back to code. The
+        // minibuffer and help overlays are handled above and stay fully modal,
+        // so these never fire while a prompt or overlay is open.
+        if ctrl {
+            match key.code {
+                KeyCode::Char('k') => return self.focus_sidebar(),
+                KeyCode::Char('l') => return self.focus_terminal(),
+                KeyCode::Char('o') => return self.focus_editor(),
+                _ => {}
+            }
+        }
+
         // The diff view is modal: while open, quit still works and the toggle
         // closes it; every other key is routed to the (read-only) view.
         if self.diff.is_some() {
@@ -466,6 +484,45 @@ impl App {
         } else {
             Focus::Editor
         };
+    }
+
+    // --- focus jumps -------------------------------------------------------
+
+    /// Focus the file-tree sidebar without toggling it: reveal it if hidden and
+    /// move focus there. While the diff view is open the sidebar is unavailable,
+    /// so this focuses the diff view's file list (the "diff tree") instead.
+    /// Never hides anything.
+    fn focus_sidebar(&mut self) {
+        self.completion = None;
+        if let Some(diff) = self.diff.as_mut() {
+            diff.back_to_list();
+            self.focus = Focus::Diff;
+        } else {
+            self.sidebar_visible = true;
+            self.focus = Focus::Sidebar;
+        }
+    }
+
+    /// Focus the terminal area without toggling it: reveal it (spawning a first
+    /// shell if the area is empty) and move focus there. Closes the modal diff
+    /// view if open, since the two cannot share the screen. Never hides anything.
+    fn focus_terminal(&mut self) {
+        self.completion = None;
+        self.diff = None;
+        if self.terminal_area.is_empty() {
+            self.spawn_terminal();
+        } else {
+            self.terminal_area.show();
+            self.focus = Focus::Terminal;
+        }
+    }
+
+    /// Return focus to the code/editor pane without changing any region's
+    /// visibility. Closes the modal diff view if open.
+    fn focus_editor(&mut self) {
+        self.completion = None;
+        self.diff = None;
+        self.focus = Focus::Editor;
     }
 
     /// Open `path` into the focused pane (as a new buffer) and focus the editor.
@@ -1150,6 +1207,59 @@ mod tests {
         app.toggle_terminal_area(); // hide
         assert_eq!(app.panes.len(), n);
         assert_eq!(app.focused, focused);
+    }
+
+    // --- focus-jump chords -------------------------------------------------
+
+    #[test]
+    fn ctrl_k_reveals_and_focuses_sidebar_without_toggling() {
+        let mut app = test_app();
+        // start hidden, focused on the editor
+        app.sidebar_visible = false;
+        app.focus = Focus::Editor;
+        app.on_key(press(KeyCode::Char('k'), KeyModifiers::CONTROL));
+        assert!(app.sidebar_visible);
+        assert_eq!(app.focus, Focus::Sidebar);
+        // pressing again must not hide it (focus jump, not toggle)
+        app.on_key(press(KeyCode::Char('k'), KeyModifiers::CONTROL));
+        assert!(app.sidebar_visible);
+        assert_eq!(app.focus, Focus::Sidebar);
+    }
+
+    #[test]
+    fn ctrl_l_reveals_and_focuses_terminal() {
+        let mut app = test_app();
+        let _rx = with_terminals(&mut app);
+        assert!(!app.terminal_area.is_visible());
+        app.on_key(press(KeyCode::Char('l'), KeyModifiers::CONTROL));
+        assert!(app.terminal_area.is_visible());
+        assert!(!app.terminal_area.is_empty());
+        assert_eq!(app.focus, Focus::Terminal);
+    }
+
+    #[test]
+    fn ctrl_o_escapes_terminal_back_to_editor_without_hiding_it() {
+        let mut app = test_app();
+        let _rx = with_terminals(&mut app);
+        app.spawn_terminal();
+        assert_eq!(app.focus, Focus::Terminal);
+        app.on_key(press(KeyCode::Char('o'), KeyModifiers::CONTROL));
+        assert_eq!(app.focus, Focus::Editor);
+        // the terminal stays alive and visible — a focus jump never hides
+        assert!(app.terminal_area.is_visible());
+        assert!(!app.terminal_area.is_empty());
+    }
+
+    #[test]
+    fn focus_chords_leave_visibility_toggles_intact() {
+        // Ctrl+L reveals the terminal, then Ctrl+J still toggles it off.
+        let mut app = test_app();
+        let _rx = with_terminals(&mut app);
+        app.on_key(press(KeyCode::Char('l'), KeyModifiers::CONTROL));
+        assert!(app.terminal_area.is_visible());
+        app.on_key(press(KeyCode::Char('j'), KeyModifiers::CONTROL));
+        assert!(!app.terminal_area.is_visible());
+        assert_eq!(app.focus, Focus::Editor);
     }
 
     fn app_with(text: &str) -> App {
