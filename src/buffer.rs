@@ -8,11 +8,64 @@ use std::path::{Path, PathBuf};
 
 use ropey::Rope;
 
+/// A single reversible primitive edit. `Insert` reverts by removing the same
+/// span; `Remove` carries the removed text so it can be reinserted.
+#[derive(Debug)]
+enum EditOp {
+    Insert { at: usize, text: String },
+    Remove { at: usize, text: String },
+}
+
+/// One undo step: a run of contiguous primitive edits, plus the cursor char
+/// index before the run (the undo target) and after it (the redo target).
+#[derive(Debug)]
+struct EditGroup {
+    ops: Vec<EditOp>,
+    cursor_before: usize,
+    cursor_after: usize,
+}
+
+impl EditGroup {
+    /// Whether `next` continues this group's run (so it coalesces) rather than
+    /// starting a fresh undo step. Decided purely by op positions:
+    /// - insert run: the next insert begins where the last one ended;
+    /// - delete run: a backspace (removal ending where the last began) or a
+    ///   delete-forward (removal at the same index);
+    /// - selection replace: a remove immediately followed by an insert at the
+    ///   same index (typing over a selection).
+    ///
+    /// Any other transition (notably insert -> delete) breaks the group.
+    fn accepts(&self, next: &EditOp) -> bool {
+        let Some(last) = self.ops.last() else {
+            return true;
+        };
+        match (last, next) {
+            (EditOp::Insert { at, text }, EditOp::Insert { at: nat, .. }) => {
+                *nat == at + text.chars().count()
+            }
+            (EditOp::Remove { at, .. }, EditOp::Remove { at: nat, text: ntext }) => {
+                *nat + ntext.chars().count() == *at || *nat == *at
+            }
+            (EditOp::Remove { at, .. }, EditOp::Insert { at: nat, .. }) => *nat == *at,
+            _ => false,
+        }
+    }
+}
+
 #[derive(Debug)]
 pub struct Buffer {
     rope: Rope,
     path: Option<PathBuf>,
     dirty: bool,
+    /// Finalized undo steps (most recent on top).
+    undo: Vec<EditGroup>,
+    /// Steps that have been undone and can be re-applied (most recent on top).
+    redo: Vec<EditGroup>,
+    /// The currently growing, not-yet-finalized edit group.
+    open: Option<EditGroup>,
+    /// Cursor index reported by the pane for the next edit; becomes
+    /// `cursor_before` when a new group opens.
+    pending_before: usize,
 }
 
 impl Buffer {
@@ -22,6 +75,10 @@ impl Buffer {
             rope: Rope::new(),
             path: None,
             dirty: false,
+            undo: Vec::new(),
+            redo: Vec::new(),
+            open: None,
+            pending_before: 0,
         }
     }
 
@@ -33,6 +90,10 @@ impl Buffer {
             rope: Rope::from_str(text),
             path: None,
             dirty: false,
+            undo: Vec::new(),
+            redo: Vec::new(),
+            open: None,
+            pending_before: 0,
         }
     }
 
@@ -44,6 +105,10 @@ impl Buffer {
             rope: Rope::from_str(&text),
             path: Some(path.to_path_buf()),
             dirty: false,
+            undo: Vec::new(),
+            redo: Vec::new(),
+            open: None,
+            pending_before: 0,
         })
     }
 
@@ -90,19 +155,105 @@ impl Buffer {
     pub fn insert(&mut self, char_idx: usize, text: &str) {
         self.rope.insert(char_idx, text);
         self.dirty = true;
+        self.record(EditOp::Insert {
+            at: char_idx,
+            text: text.to_string(),
+        });
     }
 
     /// Remove the half-open character range `[start, end)` and mark dirty.
     pub fn remove(&mut self, start: usize, end: usize) {
         if start < end {
+            let text = self.rope.slice(start..end).to_string();
             self.rope.remove(start..end);
             self.dirty = true;
+            self.record(EditOp::Remove { at: start, text });
         }
+    }
+
+    /// Report the pane cursor index for the edit about to happen. It becomes the
+    /// `cursor_before` of a freshly opened group; ignored while a contiguous run
+    /// continues.
+    pub fn begin_edit(&mut self, cursor: usize) {
+        self.pending_before = cursor;
+    }
+
+    /// Append `op` to the open group, coalescing it into the current run when it
+    /// continues, or finalizing the run and starting a new group otherwise.
+    /// Opening a new group discards the redo stack (the branch has diverged).
+    fn record(&mut self, op: EditOp) {
+        let contiguous = self.open.as_ref().is_some_and(|g| g.accepts(&op));
+        if !contiguous {
+            self.finalize();
+            self.redo.clear();
+            self.open = Some(EditGroup {
+                ops: Vec::new(),
+                cursor_before: self.pending_before,
+                cursor_after: self.pending_before,
+            });
+        }
+        let group = self.open.as_mut().expect("group just opened");
+        group.cursor_after = match &op {
+            EditOp::Insert { at, text } => at + text.chars().count(),
+            EditOp::Remove { at, .. } => *at,
+        };
+        group.ops.push(op);
+    }
+
+    /// Close the open edit group onto the undo stack so it becomes a single
+    /// undoable unit. A no-op when nothing is in progress.
+    pub fn finalize(&mut self) {
+        if let Some(group) = self.open.take()
+            && !group.ops.is_empty()
+        {
+            self.undo.push(group);
+        }
+    }
+
+    /// Revert the most recent edit group, returning the cursor char index to
+    /// restore (the position before that edit), or `None` if there is nothing to
+    /// undo. Inverse edits bypass recording so they don't pollute the history.
+    pub fn undo(&mut self) -> Option<usize> {
+        self.finalize();
+        let group = self.undo.pop()?;
+        for op in group.ops.iter().rev() {
+            match op {
+                EditOp::Insert { at, text } => {
+                    self.rope.remove(*at..*at + text.chars().count());
+                }
+                EditOp::Remove { at, text } => self.rope.insert(*at, text),
+            }
+        }
+        self.dirty = true;
+        let target = group.cursor_before;
+        self.redo.push(group);
+        Some(target)
+    }
+
+    /// Re-apply the most recently undone edit group, returning the cursor char
+    /// index to restore (the position after that edit), or `None` if there is
+    /// nothing to redo.
+    pub fn redo(&mut self) -> Option<usize> {
+        let group = self.redo.pop()?;
+        for op in &group.ops {
+            match op {
+                EditOp::Insert { at, text } => self.rope.insert(*at, text),
+                EditOp::Remove { at, text } => {
+                    self.rope.remove(*at..*at + text.chars().count());
+                }
+            }
+        }
+        self.dirty = true;
+        let target = group.cursor_after;
+        self.undo.push(group);
+        Some(target)
     }
 
     /// Write the buffer back to its file, clearing the dirty flag. Returns
     /// `Ok(false)` if the buffer has no associated path (nothing written).
     pub fn save(&mut self) -> io::Result<bool> {
+        // Close any in-progress edit so the saved content is one undoable unit.
+        self.finalize();
         let Some(path) = self.path.clone() else {
             return Ok(false);
         };
@@ -175,6 +326,37 @@ mod tests {
             .unwrap();
         assert_eq!(written, "old!");
         std::fs::remove_file(&path).ok();
+    }
+
+    #[test]
+    fn undo_redo_return_cursor_targets() {
+        let mut b = Buffer::from_str("");
+        b.begin_edit(0);
+        b.insert(0, "abc"); // one group: before 0, after 3
+        assert_eq!(b.undo(), Some(0)); // cursor_before
+        assert_eq!(b.line_text(0), "");
+        assert_eq!(b.redo(), Some(3)); // cursor_after
+        assert_eq!(b.line_text(0), "abc");
+    }
+
+    #[test]
+    fn undo_then_new_edit_clears_redo() {
+        let mut b = Buffer::from_str("");
+        b.begin_edit(0);
+        b.insert(0, "abc");
+        b.undo();
+        b.begin_edit(0);
+        b.insert(0, "x"); // diverging edit clears the redo stack
+        assert_eq!(b.redo(), None);
+        assert_eq!(b.line_text(0), "x");
+    }
+
+    #[test]
+    fn undo_redo_empty_stacks_are_none() {
+        let mut b = Buffer::from_str("seed");
+        assert_eq!(b.undo(), None);
+        assert_eq!(b.redo(), None);
+        assert_eq!(b.line_text(0), "seed");
     }
 
     #[test]

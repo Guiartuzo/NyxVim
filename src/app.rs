@@ -58,6 +58,8 @@ const BINDINGS: &[KeyBinding] = &[
     KeyBinding { group: "Editor", keys: "Home / End", action: "Line start / end", footer: None },
     KeyBinding { group: "Editor", keys: "PageUp / PageDown", action: "Move by a screenful", footer: None },
     KeyBinding { group: "Editor", keys: "Ctrl+S", action: "Save", footer: Some("save") },
+    KeyBinding { group: "Editor", keys: "Ctrl+Z", action: "Undo", footer: Some("undo") },
+    KeyBinding { group: "Editor", keys: "Ctrl+Y", action: "Redo", footer: None },
     KeyBinding { group: "Editor", keys: "Ctrl+F", action: "Find", footer: Some("find") },
     KeyBinding { group: "Editor", keys: "Ctrl+G", action: "Go to line", footer: None },
     KeyBinding { group: "Editor", keys: "Ctrl+E", action: "Split pane vertically", footer: Some("split") },
@@ -659,6 +661,8 @@ fn dispatch_editor(ed: &mut EditorPane, buffer: &mut Buffer, key: KeyEvent) {
         KeyCode::Char('s') if ctrl => {
             let _ = buffer.save();
         }
+        KeyCode::Char('z') if ctrl => ed.undo(buffer),
+        KeyCode::Char('y') if ctrl => ed.redo(buffer),
         KeyCode::Left => ed.move_left(buffer, extend),
         KeyCode::Right => ed.move_right(buffer, extend),
         KeyCode::Up => ed.move_up(buffer, extend),
@@ -942,6 +946,19 @@ mod tests {
         app.on_key(press(KeyCode::Enter, KeyModifiers::NONE));
         assert_eq!(app.focus, Focus::Editor);
         assert_eq!(app.panes[0].cursor.line, 2);
+    }
+
+    #[test]
+    fn ctrl_z_and_ctrl_y_undo_and_redo_focused_buffer() {
+        let mut app = app_with("");
+        for c in "abc".chars() {
+            app.on_key(press(KeyCode::Char(c), KeyModifiers::NONE));
+        }
+        assert_eq!(app.buffers[0].line_text(0), "abc");
+        app.on_key(press(KeyCode::Char('z'), KeyModifiers::CONTROL));
+        assert_eq!(app.buffers[0].line_text(0), ""); // typed run undone as one step
+        app.on_key(press(KeyCode::Char('y'), KeyModifiers::CONTROL));
+        assert_eq!(app.buffers[0].line_text(0), "abc");
     }
 
     #[test]

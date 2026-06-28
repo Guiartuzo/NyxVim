@@ -228,6 +228,7 @@ impl EditorPane {
     }
 
     pub fn insert_char(&mut self, buffer: &mut Buffer, ch: char) {
+        buffer.begin_edit(buffer.char_idx(self.cursor.line, self.cursor.col));
         self.delete_selection(buffer);
         let idx = buffer.char_idx(self.cursor.line, self.cursor.col);
         let mut encoded = [0u8; 4];
@@ -237,9 +238,14 @@ impl EditorPane {
     }
 
     pub fn insert_newline(&mut self, buffer: &mut Buffer) {
+        // A line break is its own undo step: close any run before it, and close
+        // the newline group after so the next typing starts fresh.
+        buffer.finalize();
+        buffer.begin_edit(buffer.char_idx(self.cursor.line, self.cursor.col));
         self.delete_selection(buffer);
         let idx = buffer.char_idx(self.cursor.line, self.cursor.col);
         buffer.insert(idx, "\n");
+        buffer.finalize();
         self.cursor.line += 1;
         self.cursor.col = 0;
         self.cursor.target_col = 0;
@@ -247,6 +253,7 @@ impl EditorPane {
 
     /// Delete the character before the cursor, joining lines at a line start.
     pub fn backspace(&mut self, buffer: &mut Buffer) {
+        buffer.begin_edit(buffer.char_idx(self.cursor.line, self.cursor.col));
         if self.delete_selection(buffer) {
             return;
         }
@@ -263,6 +270,7 @@ impl EditorPane {
 
     /// Delete the character at the cursor, joining lines at a line end.
     pub fn delete_forward(&mut self, buffer: &mut Buffer) {
+        buffer.begin_edit(buffer.char_idx(self.cursor.line, self.cursor.col));
         if self.delete_selection(buffer) {
             return;
         }
@@ -270,6 +278,34 @@ impl EditorPane {
         if idx < buffer.len_chars() {
             buffer.remove(idx, idx + 1);
         }
+    }
+
+    /// Undo the last edit group on `buffer`, moving this pane's cursor to the
+    /// edit site and clearing any selection. A no-op when there is nothing to
+    /// undo.
+    pub fn undo(&mut self, buffer: &mut Buffer) {
+        if let Some(idx) = buffer.undo() {
+            self.move_to_edit(buffer, idx);
+        }
+    }
+
+    /// Redo the last undone edit group on `buffer`, moving this pane's cursor to
+    /// the edit site and clearing any selection. A no-op when there is nothing
+    /// to redo.
+    pub fn redo(&mut self, buffer: &mut Buffer) {
+        if let Some(idx) = buffer.redo() {
+            self.move_to_edit(buffer, idx);
+        }
+    }
+
+    /// Place the cursor at buffer char index `idx` and clear the selection,
+    /// shared by undo and redo.
+    fn move_to_edit(&mut self, buffer: &Buffer, idx: usize) {
+        let (line, col) = buffer.line_col(idx);
+        self.cursor.line = line;
+        self.cursor.col = col;
+        self.cursor.target_col = col;
+        self.anchor = None;
     }
 
     // --- search & go-to-line -----------------------------------------------
@@ -885,6 +921,110 @@ mod tests {
         p.search_update(&b, "foo");
         p.search_commit();
         assert_eq!(match_selection(&p), Some(((1, 0), (1, 3))));
+    }
+
+    // --- undo / redo -------------------------------------------------------
+
+    #[test]
+    fn typed_run_undoes_and_redoes_as_one_group() {
+        let (mut p, mut b) = setup("");
+        for c in "hello".chars() {
+            p.insert_char(&mut b, c);
+        }
+        assert_eq!(b.line_text(0), "hello");
+        p.undo(&mut b);
+        assert_eq!(b.line_text(0), ""); // whole run gone in one step
+        p.redo(&mut b);
+        assert_eq!(b.line_text(0), "hello");
+    }
+
+    #[test]
+    fn deletion_is_its_own_undo_step() {
+        let (mut p, mut b) = setup("");
+        for c in "abc".chars() {
+            p.insert_char(&mut b, c);
+        }
+        p.backspace(&mut b); // delete 'c'
+        assert_eq!(b.line_text(0), "ab");
+        p.undo(&mut b); // reverts only the deletion
+        assert_eq!(b.line_text(0), "abc");
+        p.undo(&mut b); // reverts the typed run
+        assert_eq!(b.line_text(0), "");
+    }
+
+    #[test]
+    fn line_breaks_split_groups() {
+        let (mut p, mut b) = setup("");
+        for c in "ab".chars() {
+            p.insert_char(&mut b, c);
+        }
+        p.insert_newline(&mut b);
+        for c in "cd".chars() {
+            p.insert_char(&mut b, c);
+        }
+        assert_eq!(b.line_text(0), "ab");
+        assert_eq!(b.line_text(1), "cd");
+        p.undo(&mut b); // remove "cd"
+        assert_eq!(b.line_text(1), "");
+        p.undo(&mut b); // remove the newline
+        assert_eq!(b.line_count(), 1);
+        assert_eq!(b.line_text(0), "ab");
+        p.undo(&mut b); // remove "ab"
+        assert_eq!(b.line_text(0), "");
+    }
+
+    #[test]
+    fn selection_replace_is_one_group() {
+        let (mut p, mut b) = setup("hello");
+        p.move_right(&b, true);
+        p.move_right(&b, true);
+        p.move_right(&b, true); // select "hel"
+        p.insert_char(&mut b, 'H'); // type over the selection -> "Hlo"
+        assert_eq!(b.line_text(0), "Hlo");
+        p.undo(&mut b); // single step restores the original
+        assert_eq!(b.line_text(0), "hello");
+    }
+
+    #[test]
+    fn new_edit_after_undo_discards_redo() {
+        let (mut p, mut b) = setup("");
+        for c in "abc".chars() {
+            p.insert_char(&mut b, c);
+        }
+        p.undo(&mut b);
+        assert_eq!(b.line_text(0), "");
+        p.insert_char(&mut b, 'x'); // diverge
+        p.redo(&mut b); // nothing to redo
+        assert_eq!(b.line_text(0), "x");
+    }
+
+    #[test]
+    fn undo_redo_restore_cursor_and_clear_selection() {
+        let (mut p, mut b) = setup("");
+        for c in "hi".chars() {
+            p.insert_char(&mut b, c);
+        }
+        // move away and start a selection to prove undo restores both
+        p.move_line_start(&b, false);
+        p.move_right(&b, true);
+        assert!(p.has_selection());
+        p.undo(&mut b);
+        assert_eq!(b.line_text(0), "");
+        assert!(!p.has_selection());
+        assert_eq!((p.cursor.line, p.cursor.col), (0, 0)); // cursor_before
+        p.redo(&mut b);
+        assert_eq!(b.line_text(0), "hi");
+        assert_eq!((p.cursor.line, p.cursor.col), (0, 2)); // cursor_after
+    }
+
+    #[test]
+    fn undo_redo_on_empty_stacks_are_noops() {
+        let (mut p, mut b) = setup("seed");
+        p.undo(&mut b); // nothing recorded yet
+        assert_eq!(b.line_text(0), "seed");
+        p.redo(&mut b);
+        assert_eq!(b.line_text(0), "seed");
+        assert_eq!((p.cursor.line, p.cursor.col), (0, 0));
     }
 
     #[test]
