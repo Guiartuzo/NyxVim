@@ -55,35 +55,38 @@ pub struct Theme {
 }
 
 impl Default for Theme {
-    /// The default theme. These values reproduce NyxVim's pre-theme colors
-    /// exactly, so introducing the theme is a no-op on screen.
+    /// The default theme: a Charm / Bubble Tea-inspired palette — hot-magenta
+    /// accent, purple focus, soft-slate borders and muted text — over a
+    /// Dracula-adjacent set of greens/reds for diffs. Truecolor `Rgb` values;
+    /// the whole look is determined here (and in [`Theme::border_type`]), so it
+    /// can be reverted as one isolated change without touching any call site.
     fn default() -> Self {
         Self {
-            text: Color::White,
-            text_muted: Color::DarkGray,
-            accent: Color::Yellow,
-            border: Color::DarkGray,
-            cursor_line: Color::Indexed(236),
-            selection: Color::Indexed(24),
-            focus_fg: Color::White,
-            focus_bg: Color::Blue,
-            inactive_fg: Color::Gray,
-            inactive_bg: Color::DarkGray,
-            prompt_bg: Color::Black,
-            diff_add_fg: Color::Green,
-            diff_add_bg: Color::Indexed(22),
-            diff_del_fg: Color::Red,
-            diff_del_bg: Color::Indexed(52),
-            diff_gap_bg: Color::Indexed(235),
+            text: Color::Rgb(248, 248, 242),       // off-white
+            text_muted: Color::Rgb(98, 114, 164),  // soft slate
+            accent: Color::Rgb(255, 6, 183),       // hot magenta (Charm)
+            border: Color::Rgb(98, 114, 164),       // soft slate
+            cursor_line: Color::Rgb(40, 42, 54),    // subtle dark tint
+            selection: Color::Rgb(68, 71, 90),      // muted slate-blue
+            focus_fg: Color::Rgb(248, 248, 242),    // off-white
+            focus_bg: Color::Rgb(125, 86, 244),     // purple (Charm)
+            inactive_fg: Color::Rgb(98, 114, 164),  // soft slate
+            inactive_bg: Color::Rgb(68, 71, 90),    // muted slate-blue
+            prompt_bg: Color::Rgb(30, 31, 42),       // near-black slate
+            diff_add_fg: Color::Rgb(80, 250, 123),  // green
+            diff_add_bg: Color::Rgb(25, 55, 35),     // dark green
+            diff_del_fg: Color::Rgb(255, 85, 85),    // red
+            diff_del_bg: Color::Rgb(60, 25, 30),     // dark red
+            diff_gap_bg: Color::Rgb(24, 25, 34),     // darker gap fill
         }
     }
 }
 
 impl Theme {
     /// Border style for bordered blocks. A single themed choice so the whole
-    /// editor's border look (square vs rounded) lives in one place.
+    /// editor's border look lives in one place — rounded, for the Charm feel.
     pub fn border_type(&self) -> BorderType {
-        BorderType::Plain
+        BorderType::Rounded
     }
 
     /// Style for a selected row whose region's focus state is `focused`. Collapses
