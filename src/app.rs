@@ -22,6 +22,7 @@ use ratatui::widgets::{Block, Borders, Clear, Paragraph};
 
 use crate::buffer::Buffer;
 use crate::file_tree::FileTree;
+use crate::minibuffer::{MiniMode, Minibuffer};
 use crate::pane::EditorPane;
 use crate::syntax::Syntax;
 use crate::terminal::Tui;
@@ -57,6 +58,8 @@ const BINDINGS: &[KeyBinding] = &[
     KeyBinding { group: "Editor", keys: "Home / End", action: "Line start / end", footer: None },
     KeyBinding { group: "Editor", keys: "PageUp / PageDown", action: "Move by a screenful", footer: None },
     KeyBinding { group: "Editor", keys: "Ctrl+S", action: "Save", footer: Some("save") },
+    KeyBinding { group: "Editor", keys: "Ctrl+F", action: "Find", footer: Some("find") },
+    KeyBinding { group: "Editor", keys: "Ctrl+G", action: "Go to line", footer: None },
     KeyBinding { group: "Editor", keys: "Ctrl+E", action: "Split pane vertically", footer: Some("split") },
     KeyBinding { group: "Editor", keys: "Ctrl+\\", action: "Split pane (alias)", footer: None },
     KeyBinding { group: "Editor", keys: "Ctrl+W", action: "Close pane", footer: Some("close") },
@@ -83,6 +86,7 @@ enum Focus {
     Sidebar,
     Editor,
     Terminal,
+    Minibuffer,
 }
 
 /// Central application state — the single owner of everything NyxVim tracks.
@@ -101,6 +105,8 @@ pub struct App {
     focused: usize,
     /// The docked terminal area: multiple terminals, toggled as one unit.
     terminal_area: TerminalArea,
+    /// The active minibuffer prompt (search / go-to-line), if any.
+    minibuffer: Option<Minibuffer>,
     tree: FileTree,
     focus: Focus,
     /// Sender for spawning terminal panes; set once the loop starts.
@@ -124,6 +130,7 @@ impl App {
             panes: vec![EditorPane::new(0)],
             focused: 0,
             terminal_area: TerminalArea::new(),
+            minibuffer: None,
             tree: FileTree::new(root),
             focus: Focus::Editor,
             event_tx: None,
@@ -242,7 +249,14 @@ impl App {
             frame.render_widget(divider, regions[i * 2 + 1]);
         }
 
-        render_footer(frame, footer);
+        // The minibuffer prompt takes over the bottom row while open, and owns
+        // the hardware cursor (the focused pane suppresses its own cursor then).
+        if let Some(mini) = &self.minibuffer {
+            let cx = mini.render(frame, footer);
+            frame.set_cursor_position((cx, footer.y));
+        } else {
+            render_footer(frame, footer);
+        }
 
         if self.help_visible {
             render_help_overlay(frame);
@@ -252,6 +266,12 @@ impl App {
     /// Handle a key press. Truly global chords (quit, toggle sidebar) are
     /// handled first; the rest are routed by which region has focus.
     fn on_key(&mut self, key: KeyEvent) {
+        // The minibuffer is modal: while a prompt is open it captures every key
+        // (Enter commits, Esc cancels) so nothing edits or toggles underneath.
+        if self.minibuffer.is_some() {
+            self.on_minibuffer_key(key);
+            return;
+        }
         // The help overlay is modal: F1 toggles it, and while it is open every
         // other key is swallowed (Esc also closes) so nothing edits underneath.
         if key.code == KeyCode::F(1) {
@@ -287,6 +307,8 @@ impl App {
             Focus::Sidebar => self.on_sidebar_key(key),
             Focus::Editor => self.on_pane_key(key),
             Focus::Terminal => self.on_terminal_key(key),
+            // Handled at the top of on_key while a prompt is open.
+            Focus::Minibuffer => {}
         }
     }
 
@@ -320,6 +342,8 @@ impl App {
             KeyCode::Char('\\') if ctrl => return self.split_vertical(),
             KeyCode::Char('t') if ctrl => return self.spawn_terminal(),
             KeyCode::Char('w') if ctrl => return self.close_focused_pane(),
+            KeyCode::Char('f') if ctrl => return self.open_search(),
+            KeyCode::Char('g') if ctrl => return self.open_goto_line(),
             KeyCode::Left if alt => return self.focus_prev(),
             KeyCode::Right if alt => return self.focus_next(),
             _ => {}
@@ -430,6 +454,110 @@ impl App {
         if self.terminal_area.close_active() {
             self.focus = Focus::Editor;
         }
+    }
+
+    // --- minibuffer --------------------------------------------------------
+
+    /// Open the search prompt against the focused pane, saving its cursor as the
+    /// search origin so a cancel can return there.
+    fn open_search(&mut self) {
+        self.panes[self.focused].search_begin();
+        self.minibuffer = Some(Minibuffer::search());
+        self.focus = Focus::Minibuffer;
+    }
+
+    /// Open the go-to-line prompt against the focused pane.
+    fn open_goto_line(&mut self) {
+        self.minibuffer = Some(Minibuffer::goto_line());
+        self.focus = Focus::Minibuffer;
+    }
+
+    /// Handle a key while the minibuffer prompt is open. Enter commits, Esc
+    /// cancels; everything else edits the input (and, in search mode, drives
+    /// incremental matching and next/previous navigation).
+    fn on_minibuffer_key(&mut self, key: KeyEvent) {
+        let ctrl = key.modifiers.contains(KeyModifiers::CONTROL);
+        let alt = key.modifiers.contains(KeyModifiers::ALT);
+        let mode = self.minibuffer.as_ref().map(|m| m.mode);
+
+        match key.code {
+            KeyCode::Esc => return self.close_minibuffer_cancel(),
+            KeyCode::Enter => return self.close_minibuffer_commit(),
+            KeyCode::Backspace => {
+                if let Some(m) = self.minibuffer.as_mut() {
+                    m.backspace();
+                }
+                return self.minibuffer_input_changed();
+            }
+            _ => {}
+        }
+
+        // Search-only navigation between matches.
+        if mode == Some(MiniMode::Search) {
+            match key.code {
+                KeyCode::Down => return self.panes[self.focused].search_next(),
+                KeyCode::Up => return self.panes[self.focused].search_prev(),
+                KeyCode::Char('f') if ctrl => return self.panes[self.focused].search_next(),
+                _ => {}
+            }
+        }
+
+        if let KeyCode::Char(c) = key.code
+            && !ctrl
+            && !alt
+        {
+            // Go-to-line only accepts digits; search accepts any character.
+            let accept = mode != Some(MiniMode::GotoLine) || c.is_ascii_digit();
+            if accept {
+                if let Some(m) = self.minibuffer.as_mut() {
+                    m.push(c);
+                }
+                self.minibuffer_input_changed();
+            }
+        }
+    }
+
+    /// Re-run incremental search against the focused pane after the query
+    /// changed. No-op for go-to-line, which acts only on commit.
+    fn minibuffer_input_changed(&mut self) {
+        let Some(m) = self.minibuffer.as_ref() else {
+            return;
+        };
+        if m.mode == MiniMode::Search {
+            let query = m.input.clone();
+            let ed = &mut self.panes[self.focused];
+            let buffer = &self.buffers[ed.buffer_id];
+            ed.search_update(buffer, &query);
+        }
+    }
+
+    /// Commit the prompt: apply its action and return focus to the editor.
+    fn close_minibuffer_commit(&mut self) {
+        if let Some(m) = self.minibuffer.take() {
+            match m.mode {
+                MiniMode::Search => self.panes[self.focused].search_commit(),
+                MiniMode::GotoLine => {
+                    if let Ok(n) = m.input.trim().parse::<usize>()
+                        && n >= 1
+                    {
+                        let ed = &mut self.panes[self.focused];
+                        let buffer = &self.buffers[ed.buffer_id];
+                        ed.goto_line(buffer, n);
+                    }
+                }
+            }
+        }
+        self.focus = Focus::Editor;
+    }
+
+    /// Cancel the prompt: undo any in-progress effect and refocus the editor.
+    fn close_minibuffer_cancel(&mut self) {
+        if let Some(m) = self.minibuffer.take()
+            && m.mode == MiniMode::Search
+        {
+            self.panes[self.focused].search_cancel();
+        }
+        self.focus = Focus::Editor;
     }
 
     /// Deliver shell output to the matching terminal, even when the area is
@@ -766,5 +894,62 @@ mod tests {
         app.toggle_terminal_area(); // hide
         assert_eq!(app.panes.len(), n);
         assert_eq!(app.focused, focused);
+    }
+
+    fn app_with(text: &str) -> App {
+        App::new(Buffer::from_str(text), std::env::temp_dir())
+    }
+
+    #[test]
+    fn ctrl_f_opens_search_and_esc_restores_focus() {
+        let mut app = app_with("alpha beta");
+        app.on_key(press(KeyCode::Char('f'), KeyModifiers::CONTROL));
+        assert_eq!(app.focus, Focus::Minibuffer);
+        assert!(app.minibuffer.is_some());
+        // typing edits the query, not the buffer
+        app.on_key(press(KeyCode::Char('b'), KeyModifiers::NONE));
+        assert_eq!(app.buffers[0].line_text(0), "alpha beta");
+        // Esc cancels and refocuses the editor
+        app.on_key(press(KeyCode::Esc, KeyModifiers::NONE));
+        assert_eq!(app.focus, Focus::Editor);
+        assert!(app.minibuffer.is_none());
+    }
+
+    #[test]
+    fn search_jumps_to_match_and_commit_keeps_focus() {
+        let mut app = app_with("one two three two");
+        app.on_key(press(KeyCode::Char('f'), KeyModifiers::CONTROL));
+        for c in "two".chars() {
+            app.on_key(press(KeyCode::Char(c), KeyModifiers::NONE));
+        }
+        // the focused pane should now have the first "two" selected
+        assert!(app.panes[0].has_selection());
+        app.on_key(press(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(app.focus, Focus::Editor);
+        assert!(app.minibuffer.is_none());
+        // cursor sits at the matched text (col 4..7 -> "two")
+        assert_eq!(app.panes[0].cursor.line, 0);
+    }
+
+    #[test]
+    fn ctrl_g_goto_line_moves_cursor_and_clamps() {
+        let mut app = app_with("l1\nl2\nl3\nl4");
+        app.on_key(press(KeyCode::Char('g'), KeyModifiers::CONTROL));
+        assert_eq!(app.focus, Focus::Minibuffer);
+        for c in "3".chars() {
+            app.on_key(press(KeyCode::Char(c), KeyModifiers::NONE));
+        }
+        app.on_key(press(KeyCode::Enter, KeyModifiers::NONE));
+        assert_eq!(app.focus, Focus::Editor);
+        assert_eq!(app.panes[0].cursor.line, 2);
+    }
+
+    #[test]
+    fn goto_line_ignores_non_digit_input() {
+        let mut app = app_with("l1\nl2");
+        app.on_key(press(KeyCode::Char('g'), KeyModifiers::CONTROL));
+        app.on_key(press(KeyCode::Char('x'), KeyModifiers::NONE)); // ignored
+        app.on_key(press(KeyCode::Char('2'), KeyModifiers::NONE));
+        assert_eq!(app.minibuffer.as_ref().unwrap().input, "2");
     }
 }

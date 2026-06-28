@@ -32,6 +32,17 @@ pub struct Cursor {
     pub target_col: usize,
 }
 
+/// Active incremental-search state for a pane: the match positions, which one
+/// is current, the cursor to restore on cancel, and the query's char length.
+#[derive(Debug)]
+struct SearchState {
+    /// `(line, col)` start of each match, in buffer order.
+    matches: Vec<(usize, usize)>,
+    current: usize,
+    origin: Cursor,
+    len: usize,
+}
+
 #[derive(Debug)]
 pub struct EditorPane {
     pub buffer_id: usize,
@@ -44,6 +55,8 @@ pub struct EditorPane {
     /// Height of the content region at the last render, used by page movement
     /// (which needs the viewport size, only known at render time).
     last_height: usize,
+    /// Incremental-search state, present only while a search prompt is open.
+    search: Option<SearchState>,
 }
 
 impl EditorPane {
@@ -55,6 +68,7 @@ impl EditorPane {
             scroll_row: 0,
             scroll_col: 0,
             last_height: 0,
+            search: None,
         }
     }
 
@@ -65,6 +79,7 @@ impl EditorPane {
         self.anchor = None;
         self.scroll_row = 0;
         self.scroll_col = 0;
+        self.search = None;
     }
 
     // --- queries -----------------------------------------------------------
@@ -257,6 +272,108 @@ impl EditorPane {
         }
     }
 
+    // --- search & go-to-line -----------------------------------------------
+
+    /// Begin a search: remember the current cursor so a cancel can restore it.
+    pub fn search_begin(&mut self) {
+        self.search = Some(SearchState {
+            matches: Vec::new(),
+            current: 0,
+            origin: self.cursor,
+            len: 0,
+        });
+    }
+
+    /// Recompute matches for `query` and jump to the nearest one at or after the
+    /// search origin (wrapping to the first). An empty query or no matches puts
+    /// the cursor back at the origin with no selection.
+    pub fn search_update(&mut self, buffer: &Buffer, query: &str) {
+        let Some(origin) = self.search.as_ref().map(|s| s.origin) else {
+            return;
+        };
+        let matches = if query.is_empty() {
+            Vec::new()
+        } else {
+            find_matches(buffer, query)
+        };
+        let current = nearest_at_or_after(&matches, (origin.line, origin.col)).unwrap_or(0);
+        if let Some(s) = self.search.as_mut() {
+            s.matches = matches;
+            s.len = query.chars().count();
+            s.current = current;
+        }
+        if self.search.as_ref().is_some_and(|s| s.matches.is_empty()) {
+            self.cursor = origin;
+            self.cursor.target_col = origin.col;
+            self.anchor = None;
+        } else {
+            self.select_current_match();
+        }
+    }
+
+    /// Move to the next match, wrapping past the last to the first.
+    pub fn search_next(&mut self) {
+        if let Some(s) = self.search.as_mut() {
+            if s.matches.is_empty() {
+                return;
+            }
+            s.current = (s.current + 1) % s.matches.len();
+        }
+        self.select_current_match();
+    }
+
+    /// Move to the previous match, wrapping past the first to the last.
+    pub fn search_prev(&mut self) {
+        if let Some(s) = self.search.as_mut() {
+            if s.matches.is_empty() {
+                return;
+            }
+            s.current = (s.current + s.matches.len() - 1) % s.matches.len();
+        }
+        self.select_current_match();
+    }
+
+    /// Confirm the search: drop the search state but leave the match selected.
+    pub fn search_commit(&mut self) {
+        self.search = None;
+    }
+
+    /// Abandon the search: restore the origin cursor and clear the selection.
+    pub fn search_cancel(&mut self) {
+        if let Some(s) = self.search.take() {
+            self.cursor = s.origin;
+            self.cursor.target_col = s.origin.col;
+            self.anchor = None;
+        }
+    }
+
+    /// Select the current match by spanning it: anchor at its start, cursor at
+    /// its end, so the existing selection highlight draws it.
+    fn select_current_match(&mut self) {
+        let Some(s) = self.search.as_ref() else {
+            return;
+        };
+        if s.matches.is_empty() {
+            return;
+        }
+        let (line, col) = s.matches[s.current];
+        let len = s.len;
+        self.anchor = Some((line, col));
+        self.cursor.line = line;
+        self.cursor.col = col + len;
+        self.cursor.target_col = self.cursor.col;
+    }
+
+    /// Move the cursor to the start of 1-based line `n`, clamped to the last
+    /// line, clearing any selection.
+    pub fn goto_line(&mut self, buffer: &Buffer, n: usize) {
+        let line = n.saturating_sub(1).min(self.last_line(buffer));
+        self.cursor.line = line;
+        self.cursor.col = 0;
+        self.cursor.target_col = 0;
+        self.anchor = None;
+    }
+
     // --- rendering ---------------------------------------------------------
 
     /// Render this pane into `area`: the buffer's visible region plus a
@@ -423,6 +540,41 @@ fn highlight_line(text: &str, syntax: Option<&Syntax>) -> Line<'static> {
         out.push(Span::raw(text[cursor..].to_string()));
     }
     Line::from(out)
+}
+
+/// All `(line, col)` starts where `query` matches case-insensitively (ASCII
+/// case folding). Matching works in character columns so highlight positions
+/// line up with the char-based cursor. A query never spans a newline, so every
+/// match is contained within a single line.
+fn find_matches(buffer: &Buffer, query: &str) -> Vec<(usize, usize)> {
+    let needle: Vec<char> = query.chars().collect();
+    let nlen = needle.len();
+    if nlen == 0 {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    for line in 0..buffer.line_count() {
+        let hay: Vec<char> = buffer.line_text(line).chars().collect();
+        if hay.len() < nlen {
+            continue;
+        }
+        for start in 0..=(hay.len() - nlen) {
+            if hay[start..start + nlen]
+                .iter()
+                .zip(&needle)
+                .all(|(a, b)| a.eq_ignore_ascii_case(b))
+            {
+                out.push((line, start));
+            }
+        }
+    }
+    out
+}
+
+/// Index of the first match at or after `pos` in a buffer-ordered match list,
+/// or `None` if every match precedes `pos`.
+fn nearest_at_or_after(matches: &[(usize, usize)], pos: (usize, usize)) -> Option<usize> {
+    matches.iter().position(|&m| m >= pos)
 }
 
 /// Width (in digits) reserved for line numbers, given the line count. A floor
@@ -641,5 +793,108 @@ mod tests {
         assert_eq!(gutter_num_width(999), 3);
         assert_eq!(gutter_num_width(1000), 4);
         assert_eq!(gutter_num_width(12345), 5);
+    }
+
+    // --- search & go-to-line ----------------------------------------------
+
+    /// The current match as an ordered (start, end) selection, for assertions.
+    fn match_selection(p: &EditorPane) -> Option<((usize, usize), (usize, usize))> {
+        p.ordered_selection()
+    }
+
+    #[test]
+    fn find_matches_is_case_insensitive_and_finds_all() {
+        let b = Buffer::from_str("Foo foo\nbar FOO");
+        let m = find_matches(&b, "foo");
+        assert_eq!(m, vec![(0, 0), (0, 4), (1, 4)]);
+        assert!(find_matches(&b, "zzz").is_empty());
+    }
+
+    #[test]
+    fn nearest_at_or_after_picks_first_following_match() {
+        let m = vec![(0, 0), (1, 2), (3, 0)];
+        assert_eq!(nearest_at_or_after(&m, (1, 0)), Some(1));
+        assert_eq!(nearest_at_or_after(&m, (3, 0)), Some(2));
+        assert_eq!(nearest_at_or_after(&m, (9, 9)), None);
+    }
+
+    #[test]
+    fn search_update_selects_nearest_match_and_wraps() {
+        let (mut p, b) = setup("foo\nbar foo\nfoo end");
+        p.cursor.line = 1; // origin on line 1
+        p.search_begin();
+        p.search_update(&b, "foo");
+        // nearest at/after (1,0) is the "foo" at (1,4)
+        assert_eq!(match_selection(&p), Some(((1, 4), (1, 7))));
+    }
+
+    #[test]
+    fn search_update_with_no_origin_match_wraps_to_first() {
+        let (mut p, b) = setup("foo\nbar");
+        p.cursor.line = 1; // nothing matches at/after line 1
+        p.search_begin();
+        p.search_update(&b, "foo");
+        assert_eq!(match_selection(&p), Some(((0, 0), (0, 3))));
+    }
+
+    #[test]
+    fn search_next_and_prev_wrap_around() {
+        let (mut p, b) = setup("foo foo\nfoo");
+        p.search_begin();
+        p.search_update(&b, "foo"); // matches (0,0),(0,4),(1,0); current 0
+        assert_eq!(match_selection(&p), Some(((0, 0), (0, 3))));
+        p.search_next();
+        assert_eq!(match_selection(&p), Some(((0, 4), (0, 7))));
+        p.search_next();
+        assert_eq!(match_selection(&p), Some(((1, 0), (1, 3))));
+        p.search_next(); // wraps to first
+        assert_eq!(match_selection(&p), Some(((0, 0), (0, 3))));
+        p.search_prev(); // wraps back to last
+        assert_eq!(match_selection(&p), Some(((1, 0), (1, 3))));
+    }
+
+    #[test]
+    fn empty_query_and_no_match_restore_origin_without_selection() {
+        let (mut p, b) = setup("foo\nbar");
+        p.cursor.line = 1;
+        p.search_begin();
+        p.search_update(&b, "foo"); // jumps to (0,0)
+        assert!(p.has_selection());
+        p.search_update(&b, ""); // empty -> back to origin, no selection
+        assert!(!p.has_selection());
+        assert_eq!((p.cursor.line, p.cursor.col), (1, 0));
+        p.search_update(&b, "zzz"); // no match -> origin, no selection
+        assert!(!p.has_selection());
+        assert_eq!((p.cursor.line, p.cursor.col), (1, 0));
+    }
+
+    #[test]
+    fn search_cancel_restores_origin_commit_keeps_selection() {
+        let (mut p, b) = setup("hello\nfoo here");
+        p.cursor.line = 0;
+        p.cursor.col = 2; // origin (0,2)
+        p.search_begin();
+        p.search_update(&b, "foo");
+        assert_eq!(match_selection(&p), Some(((1, 0), (1, 3))));
+        p.search_cancel();
+        assert!(!p.has_selection());
+        assert_eq!((p.cursor.line, p.cursor.col), (0, 2));
+
+        // commit leaves the match selected
+        p.search_begin();
+        p.search_update(&b, "foo");
+        p.search_commit();
+        assert_eq!(match_selection(&p), Some(((1, 0), (1, 3))));
+    }
+
+    #[test]
+    fn goto_line_jumps_and_clamps() {
+        let (mut p, b) = setup("a\nb\nc\nd");
+        p.goto_line(&b, 3);
+        assert_eq!((p.cursor.line, p.cursor.col), (2, 0));
+        p.goto_line(&b, 999); // clamp to last line
+        assert_eq!(p.cursor.line, 3);
+        p.goto_line(&b, 1);
+        assert_eq!(p.cursor.line, 0);
     }
 }

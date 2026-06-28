@@ -1,6 +1,7 @@
 mod app;
 mod buffer;
 mod file_tree;
+mod minibuffer;
 mod pane;
 mod syntax;
 mod terminal;
