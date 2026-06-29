@@ -176,8 +176,10 @@ impl EditorPane {
         let primary = (self.cursor.line, self.cursor.col);
         self.secondary
             .retain(|c| (c.cursor.line, c.cursor.col) != primary);
-        self.secondary.sort_by_key(|c| (c.cursor.line, c.cursor.col));
-        self.secondary.dedup_by_key(|c| (c.cursor.line, c.cursor.col));
+        self.secondary
+            .sort_by_key(|c| (c.cursor.line, c.cursor.col));
+        self.secondary
+            .dedup_by_key(|c| (c.cursor.line, c.cursor.col));
     }
 
     /// The highest line index over all carets (primary + secondary).
@@ -273,7 +275,10 @@ impl EditorPane {
             pre_move(c, extend);
             if c.cursor.line > 0 {
                 c.cursor.line -= 1;
-                c.cursor.col = c.cursor.target_col.min(buffer.line_len_chars(c.cursor.line));
+                c.cursor.col = c
+                    .cursor
+                    .target_col
+                    .min(buffer.line_len_chars(c.cursor.line));
             }
         });
     }
@@ -284,7 +289,10 @@ impl EditorPane {
             pre_move(c, extend);
             if c.cursor.line < last {
                 c.cursor.line += 1;
-                c.cursor.col = c.cursor.target_col.min(buffer.line_len_chars(c.cursor.line));
+                c.cursor.col = c
+                    .cursor
+                    .target_col
+                    .min(buffer.line_len_chars(c.cursor.line));
             }
         });
     }
@@ -314,7 +322,10 @@ impl EditorPane {
         self.apply_to_carets(|c| {
             pre_move(c, extend);
             c.cursor.line = c.cursor.line.saturating_sub(page);
-            c.cursor.col = c.cursor.target_col.min(buffer.line_len_chars(c.cursor.line));
+            c.cursor.col = c
+                .cursor
+                .target_col
+                .min(buffer.line_len_chars(c.cursor.line));
         });
     }
 
@@ -326,7 +337,10 @@ impl EditorPane {
         self.apply_to_carets(|c| {
             pre_move(c, extend);
             c.cursor.line = (c.cursor.line + page).min(last);
-            c.cursor.col = c.cursor.target_col.min(buffer.line_len_chars(c.cursor.line));
+            c.cursor.col = c
+                .cursor
+                .target_col
+                .min(buffer.line_len_chars(c.cursor.line));
         });
     }
 
@@ -395,9 +409,11 @@ impl EditorPane {
     pub fn backspace(&mut self, buffer: &mut Buffer) {
         if !self.secondary.is_empty() {
             return self.fan_out_edit(buffer, |c, b| match c.ordered_selection() {
-                Some((start, end)) => {
-                    (b.char_idx(start.0, start.1), b.char_idx(end.0, end.1), String::new())
-                }
+                Some((start, end)) => (
+                    b.char_idx(start.0, start.1),
+                    b.char_idx(end.0, end.1),
+                    String::new(),
+                ),
                 None => {
                     let idx = b.char_idx(c.cursor.line, c.cursor.col);
                     let s = idx.saturating_sub(1);
@@ -425,9 +441,11 @@ impl EditorPane {
         if !self.secondary.is_empty() {
             let len = buffer.len_chars();
             return self.fan_out_edit(buffer, |c, b| match c.ordered_selection() {
-                Some((start, end)) => {
-                    (b.char_idx(start.0, start.1), b.char_idx(end.0, end.1), String::new())
-                }
+                Some((start, end)) => (
+                    b.char_idx(start.0, start.1),
+                    b.char_idx(end.0, end.1),
+                    String::new(),
+                ),
                 None => {
                     let idx = b.char_idx(c.cursor.line, c.cursor.col);
                     let e = if idx < len { idx + 1 } else { idx };
@@ -634,7 +652,12 @@ impl EditorPane {
     /// Accept a completion: replace the word-prefix spanning from `prefix_start`
     /// to the cursor with `word`, leaving the cursor at the end of the inserted
     /// word. The swap is a single undo step.
-    pub fn complete_accept(&mut self, buffer: &mut Buffer, prefix_start: (usize, usize), word: &str) {
+    pub fn complete_accept(
+        &mut self,
+        buffer: &mut Buffer,
+        prefix_start: (usize, usize),
+        word: &str,
+    ) {
         let start = buffer.char_idx(prefix_start.0, prefix_start.1);
         let end = buffer.char_idx(self.cursor.line, self.cursor.col);
         buffer.finalize();
@@ -737,36 +760,41 @@ impl EditorPane {
         let scroll_row = self.scroll_row;
         let scroll_col = self.scroll_col;
         let selection_bg = theme.selection;
-        let paint_selection = |frame: &mut Frame, sel_start: (usize, usize), sel_end: (usize, usize)| {
-            for row in 0..height {
-                let line_idx = scroll_row + row;
-                if line_idx < sel_start.0 || line_idx > sel_end.0 {
-                    continue;
+        let paint_selection =
+            |frame: &mut Frame, sel_start: (usize, usize), sel_end: (usize, usize)| {
+                for row in 0..height {
+                    let line_idx = scroll_row + row;
+                    if line_idx < sel_start.0 || line_idx > sel_end.0 {
+                        continue;
+                    }
+                    let start_col = if line_idx == sel_start.0 {
+                        sel_start.1
+                    } else {
+                        0
+                    };
+                    // For lines fully inside the selection, extend one cell past the
+                    // end of line so the selected newline reads as highlighted.
+                    let end_col = if line_idx == sel_end.0 {
+                        sel_end.1
+                    } else {
+                        buffer.line_len_chars(line_idx) + 1
+                    };
+                    let vis_start = start_col.max(scroll_col);
+                    if end_col <= vis_start {
+                        continue;
+                    }
+                    let sx = content.x + (vis_start - scroll_col) as u16;
+                    let avail = content.width.saturating_sub(sx - content.x);
+                    let w = ((end_col - vis_start) as u16).min(avail);
+                    if w == 0 {
+                        continue;
+                    }
+                    let rect = Rect::new(sx, content.y + row as u16, w, 1);
+                    frame
+                        .buffer_mut()
+                        .set_style(rect, Style::new().bg(selection_bg));
                 }
-                let start_col = if line_idx == sel_start.0 { sel_start.1 } else { 0 };
-                // For lines fully inside the selection, extend one cell past the
-                // end of line so the selected newline reads as highlighted.
-                let end_col = if line_idx == sel_end.0 {
-                    sel_end.1
-                } else {
-                    buffer.line_len_chars(line_idx) + 1
-                };
-                let vis_start = start_col.max(scroll_col);
-                if end_col <= vis_start {
-                    continue;
-                }
-                let sx = content.x + (vis_start - scroll_col) as u16;
-                let avail = content.width.saturating_sub(sx - content.x);
-                let w = ((end_col - vis_start) as u16).min(avail);
-                if w == 0 {
-                    continue;
-                }
-                let rect = Rect::new(sx, content.y + row as u16, w, 1);
-                frame
-                    .buffer_mut()
-                    .set_style(rect, Style::new().bg(selection_bg));
-            }
-        };
+            };
         if let Some((s, e)) = self.ordered_selection() {
             paint_selection(frame, s, e);
         }
@@ -804,7 +832,14 @@ impl EditorPane {
         }
     }
 
-    fn render_status(&self, frame: &mut Frame, area: Rect, buffer: &Buffer, focused: bool, theme: &Theme) {
+    fn render_status(
+        &self,
+        frame: &mut Frame,
+        area: Rect,
+        buffer: &Buffer,
+        focused: bool,
+        theme: &Theme,
+    ) {
         let name = buffer
             .path()
             .map(|p| p.display().to_string())
@@ -1093,7 +1128,10 @@ mod tests {
 
     #[test]
     fn page_down_and_up_jump_by_viewport_height() {
-        let text = (0..20).map(|i| format!("line{i}")).collect::<Vec<_>>().join("\n");
+        let text = (0..20)
+            .map(|i| format!("line{i}"))
+            .collect::<Vec<_>>()
+            .join("\n");
         let (mut p, b) = setup(&text);
         p.last_height = 5; // pretend a 5-row viewport
         p.page_down(&b, false);
@@ -1114,7 +1152,10 @@ mod tests {
 
     #[test]
     fn shift_page_down_extends_selection() {
-        let text = (0..10).map(|i| i.to_string()).collect::<Vec<_>>().join("\n");
+        let text = (0..10)
+            .map(|i| i.to_string())
+            .collect::<Vec<_>>()
+            .join("\n");
         let (mut p, b) = setup(&text);
         p.last_height = 3;
         p.page_down(&b, true);
@@ -1342,7 +1383,11 @@ mod tests {
     /// A secondary caret at `(line, col)` with no selection.
     fn caret_at(line: usize, col: usize) -> Caret {
         Caret {
-            cursor: Cursor { line, col, target_col: col },
+            cursor: Cursor {
+                line,
+                col,
+                target_col: col,
+            },
             anchor: None,
         }
     }
@@ -1355,8 +1400,14 @@ mod tests {
         p.add_caret_below(&b);
         p.add_caret_below(&b);
         assert_eq!(p.secondary.len(), 2);
-        assert_eq!((p.secondary[0].cursor.line, p.secondary[0].cursor.col), (1, 1));
-        assert_eq!((p.secondary[1].cursor.line, p.secondary[1].cursor.col), (2, 1));
+        assert_eq!(
+            (p.secondary[0].cursor.line, p.secondary[0].cursor.col),
+            (1, 1)
+        );
+        assert_eq!(
+            (p.secondary[1].cursor.line, p.secondary[1].cursor.col),
+            (2, 1)
+        );
         // below the last line is a no-op
         p.add_caret_below(&b);
         assert_eq!(p.secondary.len(), 2);
@@ -1376,7 +1427,10 @@ mod tests {
         p.cursor.col = 6;
         p.cursor.target_col = 6;
         p.add_caret_below(&b); // line "ab" is only 2 long
-        assert_eq!((p.secondary[0].cursor.line, p.secondary[0].cursor.col), (1, 2));
+        assert_eq!(
+            (p.secondary[0].cursor.line, p.secondary[0].cursor.col),
+            (1, 2)
+        );
         assert_eq!(p.secondary[0].cursor.target_col, 6); // remembered
     }
 

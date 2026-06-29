@@ -43,9 +43,13 @@ impl EditGroup {
             (EditOp::Insert { at, text }, EditOp::Insert { at: nat, .. }) => {
                 *nat == at + text.chars().count()
             }
-            (EditOp::Remove { at, .. }, EditOp::Remove { at: nat, text: ntext }) => {
-                *nat + ntext.chars().count() == *at || *nat == *at
-            }
+            (
+                EditOp::Remove { at, .. },
+                EditOp::Remove {
+                    at: nat,
+                    text: ntext,
+                },
+            ) => *nat + ntext.chars().count() == *at || *nat == *at,
             (EditOp::Remove { at, .. }, EditOp::Insert { at: nat, .. }) => *nat == *at,
             _ => false,
         }

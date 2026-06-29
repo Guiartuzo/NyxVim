@@ -144,7 +144,11 @@ impl TerminalArea {
             let label = format!(" {} ", i + 1);
             let style = if i == self.active {
                 // Active tab: background tracks focus, foreground stays focus-fg.
-                let bg = if focused { theme.focus_bg } else { theme.inactive_bg };
+                let bg = if focused {
+                    theme.focus_bg
+                } else {
+                    theme.inactive_bg
+                };
                 Style::new().bg(bg).fg(theme.focus_fg)
             } else {
                 Style::new().fg(theme.inactive_fg)

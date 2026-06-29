@@ -255,13 +255,20 @@ impl DiffView {
                 // Selected row keeps a focus-colored foreground in both states;
                 // only the background tracks focus, so this builds from tokens
                 // rather than `list_row` (whose unfocused fg differs).
-                let bg = if list_focused { theme.focus_bg } else { theme.inactive_bg };
+                let bg = if list_focused {
+                    theme.focus_bg
+                } else {
+                    theme.inactive_bg
+                };
                 Style::new().bg(bg).fg(theme.focus_fg)
             } else {
                 Style::new()
             };
             lines.push(Line::from(vec![
-                Span::styled(format!("{} ", f.kind.indicator()), kind_style.patch(row_style)),
+                Span::styled(
+                    format!("{} ", f.kind.indicator()),
+                    kind_style.patch(row_style),
+                ),
                 Span::styled(f.path.clone(), row_style),
             ]));
         }
@@ -335,12 +342,18 @@ fn render_row(row: &DiffRow, theme: &Theme) -> (Line<'static>, Line<'static>) {
     match row {
         DiffRow::Equal(t) => (Line::raw(t.clone()), Line::raw(t.clone())),
         DiffRow::Delete(t) => (
-            Line::styled(t.clone(), Style::new().fg(theme.diff_del_fg).bg(theme.diff_del_bg)),
+            Line::styled(
+                t.clone(),
+                Style::new().fg(theme.diff_del_fg).bg(theme.diff_del_bg),
+            ),
             Line::styled("", Style::new().bg(theme.diff_gap_bg)),
         ),
         DiffRow::Insert(t) => (
             Line::styled("", Style::new().bg(theme.diff_gap_bg)),
-            Line::styled(t.clone(), Style::new().fg(theme.diff_add_fg).bg(theme.diff_add_bg)),
+            Line::styled(
+                t.clone(),
+                Style::new().fg(theme.diff_add_fg).bg(theme.diff_add_bg),
+            ),
         ),
     }
 }
@@ -381,7 +394,10 @@ pub fn build_hunks(rows: &[DiffRow]) -> Vec<Hunk> {
         }
     }
     if let Some(s) = start {
-        hunks.push(Hunk { start: s, end: rows.len() });
+        hunks.push(Hunk {
+            start: s,
+            end: rows.len(),
+        });
     }
     hunks
 }
@@ -395,11 +411,23 @@ mod tests {
         DiffView {
             root: Some(PathBuf::from("/repo")),
             files: vec![
-                ChangedFile { path: "a.rs".into(), kind: ChangeKind::Modified },
-                ChangedFile { path: "b.rs".into(), kind: ChangeKind::Added },
+                ChangedFile {
+                    path: "a.rs".into(),
+                    kind: ChangeKind::Modified,
+                },
+                ChangedFile {
+                    path: "b.rs".into(),
+                    kind: ChangeKind::Added,
+                },
             ],
             selected: 0,
-            file: FileDiff { rows, hunks, current_hunk: 0, scroll: 0, binary: false },
+            file: FileDiff {
+                rows,
+                hunks,
+                current_hunk: 0,
+                scroll: 0,
+                binary: false,
+            },
             focus: DiffFocus::List,
         }
     }
@@ -407,13 +435,19 @@ mod tests {
     #[test]
     fn pure_add_is_all_inserts_on_the_right() {
         let rows = build_rows("", "a\nb\n");
-        assert_eq!(rows, vec![DiffRow::Insert("a".into()), DiffRow::Insert("b".into())]);
+        assert_eq!(
+            rows,
+            vec![DiffRow::Insert("a".into()), DiffRow::Insert("b".into())]
+        );
     }
 
     #[test]
     fn pure_delete_is_all_deletes_on_the_left() {
         let rows = build_rows("a\nb\n", "");
-        assert_eq!(rows, vec![DiffRow::Delete("a".into()), DiffRow::Delete("b".into())]);
+        assert_eq!(
+            rows,
+            vec![DiffRow::Delete("a".into()), DiffRow::Delete("b".into())]
+        );
     }
 
     #[test]
@@ -447,7 +481,10 @@ mod tests {
             DiffRow::Insert("5".into()),
         ];
         let hunks = build_hunks(&rows);
-        assert_eq!(hunks, vec![Hunk { start: 1, end: 3 }, Hunk { start: 5, end: 6 }]);
+        assert_eq!(
+            hunks,
+            vec![Hunk { start: 1, end: 3 }, Hunk { start: 5, end: 6 }]
+        );
     }
 
     #[test]

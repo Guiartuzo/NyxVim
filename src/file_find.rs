@@ -101,8 +101,7 @@ pub fn fuzzy_score(query: &str, candidate: &str) -> Option<i64> {
         }
         if ch.eq_ignore_ascii_case(&q[qi]) {
             score += 1;
-            let at_boundary =
-                ci == 0 || matches!(c[ci - 1], '/' | '\\' | '_' | '-' | '.' | ' ');
+            let at_boundary = ci == 0 || matches!(c[ci - 1], '/' | '\\' | '_' | '-' | '.' | ' ');
             if at_boundary {
                 score += BOUNDARY_BONUS;
             }

@@ -178,9 +178,18 @@ mod tests {
         assert_eq!(
             files,
             vec![
-                ChangedFile { path: "src/a.rs".into(), kind: ChangeKind::Modified },
-                ChangedFile { path: "src/new.rs".into(), kind: ChangeKind::Added },
-                ChangedFile { path: "src/gone.rs".into(), kind: ChangeKind::Deleted },
+                ChangedFile {
+                    path: "src/a.rs".into(),
+                    kind: ChangeKind::Modified
+                },
+                ChangedFile {
+                    path: "src/new.rs".into(),
+                    kind: ChangeKind::Added
+                },
+                ChangedFile {
+                    path: "src/gone.rs".into(),
+                    kind: ChangeKind::Deleted
+                },
             ]
         );
     }
@@ -188,7 +197,13 @@ mod tests {
     #[test]
     fn untracked_files_count_as_added() {
         let files = parse_porcelain(&porcelain(&["?? notes.txt"]));
-        assert_eq!(files, vec![ChangedFile { path: "notes.txt".into(), kind: ChangeKind::Added }]);
+        assert_eq!(
+            files,
+            vec![ChangedFile {
+                path: "notes.txt".into(),
+                kind: ChangeKind::Added
+            }]
+        );
     }
 
     #[test]
@@ -266,15 +281,30 @@ mod tests {
         assert_eq!(
             files,
             vec![
-                ChangedFile { path: "gone.txt".into(), kind: ChangeKind::Deleted },
-                ChangedFile { path: "keep.txt".into(), kind: ChangeKind::Modified },
-                ChangedFile { path: "new file.txt".into(), kind: ChangeKind::Added },
+                ChangedFile {
+                    path: "gone.txt".into(),
+                    kind: ChangeKind::Deleted
+                },
+                ChangedFile {
+                    path: "keep.txt".into(),
+                    kind: ChangeKind::Modified
+                },
+                ChangedFile {
+                    path: "new file.txt".into(),
+                    kind: ChangeKind::Added
+                },
             ]
         );
 
         // Committed contents for a modified file; empty for an added one.
-        assert_eq!(file_at_head("keep.txt"), FileContents::Text("one\ntwo\nthree\n".into()));
-        assert_eq!(file_at_head("new file.txt"), FileContents::Text(String::new()));
+        assert_eq!(
+            file_at_head("keep.txt"),
+            FileContents::Text("one\ntwo\nthree\n".into())
+        );
+        assert_eq!(
+            file_at_head("new file.txt"),
+            FileContents::Text(String::new())
+        );
 
         drop(guard);
         std::fs::remove_dir_all(&dir).ok();

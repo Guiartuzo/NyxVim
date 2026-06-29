@@ -49,51 +49,231 @@ struct KeyBinding {
 
 /// All user-facing keybindings, grouped. The help overlay (F1) renders them all.
 const BINDINGS: &[KeyBinding] = &[
-    KeyBinding { group: "Global", keys: "Ctrl+Q", action: "Quit" },
-    KeyBinding { group: "Global", keys: "Ctrl+B", action: "Show / hide sidebar" },
-    KeyBinding { group: "Global", keys: "Ctrl+J", action: "Show / hide terminal" },
-    KeyBinding { group: "Global", keys: "Ctrl+D", action: "Show / hide diff view" },
-    KeyBinding { group: "Global", keys: "Ctrl+Shift+G", action: "Show / hide diff view (alias)" },
-    KeyBinding { group: "Global", keys: "F1", action: "Toggle this help" },
-    KeyBinding { group: "Global", keys: "Ctrl+K", action: "Focus file tree" },
-    KeyBinding { group: "Global", keys: "Ctrl+L", action: "Focus terminal" },
-    KeyBinding { group: "Global", keys: "Ctrl+O", action: "Focus code / editor" },
-    KeyBinding { group: "Editor", keys: "Arrows", action: "Move cursor" },
-    KeyBinding { group: "Editor", keys: "Shift+move", action: "Extend selection" },
-    KeyBinding { group: "Editor", keys: "Home / End", action: "Line start / end" },
-    KeyBinding { group: "Editor", keys: "PageUp / PageDown", action: "Move by a screenful" },
-    KeyBinding { group: "Editor", keys: "Ctrl+S", action: "Save" },
-    KeyBinding { group: "Editor", keys: "Ctrl+Z", action: "Undo" },
-    KeyBinding { group: "Editor", keys: "Ctrl+Y", action: "Redo" },
-    KeyBinding { group: "Editor", keys: "Ctrl+F", action: "Find" },
-    KeyBinding { group: "Editor", keys: "Ctrl+G", action: "Go to line" },
-    KeyBinding { group: "Editor", keys: "Ctrl+P", action: "Fuzzy file finder" },
-    KeyBinding { group: "Editor", keys: "Ctrl+N", action: "Autocomplete word (Ctrl+Space alias)" },
-    KeyBinding { group: "Editor", keys: "Up / Down", action: "Completion: previous / next" },
-    KeyBinding { group: "Editor", keys: "Tab / Enter", action: "Completion: accept" },
-    KeyBinding { group: "Editor", keys: "Esc", action: "Completion: dismiss" },
-    KeyBinding { group: "Editor", keys: "Ctrl+E", action: "Split pane vertically" },
-    KeyBinding { group: "Editor", keys: "Ctrl+\\", action: "Split pane (alias)" },
-    KeyBinding { group: "Editor", keys: "Ctrl+W", action: "Close pane" },
-    KeyBinding { group: "Editor", keys: "Alt+Left / Alt+Right", action: "Move focus between panes" },
-    KeyBinding { group: "Editor", keys: "Ctrl+Alt+Up / Down", action: "Add caret above / below" },
-    KeyBinding { group: "Editor", keys: "Alt+Shift+Up / Down", action: "Add caret above / below (alias)" },
-    KeyBinding { group: "Editor", keys: "Esc", action: "Collapse to a single caret" },
-    KeyBinding { group: "Terminal", keys: "Ctrl+T", action: "New terminal" },
-    KeyBinding { group: "Terminal", keys: "Alt+Left / Alt+Right", action: "Switch terminal" },
-    KeyBinding { group: "Terminal", keys: "Ctrl+W", action: "Close terminal" },
-    KeyBinding { group: "File finder", keys: "Up / Down", action: "Move selection" },
-    KeyBinding { group: "File finder", keys: "Enter", action: "Open selected file" },
-    KeyBinding { group: "File finder", keys: "Esc", action: "Dismiss" },
-    KeyBinding { group: "Sidebar", keys: "Up / Down", action: "Move selection" },
-    KeyBinding { group: "Sidebar", keys: "Left / Right", action: "Collapse / expand directory" },
-    KeyBinding { group: "Sidebar", keys: "Enter", action: "Open file / toggle directory" },
-    KeyBinding { group: "Diff view", keys: "Up / Down", action: "Select file / scroll diff" },
-    KeyBinding { group: "Diff view", keys: "Enter / Right", action: "Enter the diff" },
-    KeyBinding { group: "Diff view", keys: "Left", action: "Back to the file list" },
-    KeyBinding { group: "Diff view", keys: "n / p", action: "Next / previous change" },
-    KeyBinding { group: "Diff view", keys: "r", action: "Refresh" },
-    KeyBinding { group: "Diff view", keys: "Esc", action: "Close the diff view" },
+    KeyBinding {
+        group: "Global",
+        keys: "Ctrl+Q",
+        action: "Quit",
+    },
+    KeyBinding {
+        group: "Global",
+        keys: "Ctrl+B",
+        action: "Show / hide sidebar",
+    },
+    KeyBinding {
+        group: "Global",
+        keys: "Ctrl+J",
+        action: "Show / hide terminal",
+    },
+    KeyBinding {
+        group: "Global",
+        keys: "Ctrl+D",
+        action: "Show / hide diff view",
+    },
+    KeyBinding {
+        group: "Global",
+        keys: "Ctrl+Shift+G",
+        action: "Show / hide diff view (alias)",
+    },
+    KeyBinding {
+        group: "Global",
+        keys: "F1",
+        action: "Toggle this help",
+    },
+    KeyBinding {
+        group: "Global",
+        keys: "Ctrl+K",
+        action: "Focus file tree",
+    },
+    KeyBinding {
+        group: "Global",
+        keys: "Ctrl+L",
+        action: "Focus terminal",
+    },
+    KeyBinding {
+        group: "Global",
+        keys: "Ctrl+O",
+        action: "Focus code / editor",
+    },
+    KeyBinding {
+        group: "Editor",
+        keys: "Arrows",
+        action: "Move cursor",
+    },
+    KeyBinding {
+        group: "Editor",
+        keys: "Shift+move",
+        action: "Extend selection",
+    },
+    KeyBinding {
+        group: "Editor",
+        keys: "Home / End",
+        action: "Line start / end",
+    },
+    KeyBinding {
+        group: "Editor",
+        keys: "PageUp / PageDown",
+        action: "Move by a screenful",
+    },
+    KeyBinding {
+        group: "Editor",
+        keys: "Ctrl+S",
+        action: "Save",
+    },
+    KeyBinding {
+        group: "Editor",
+        keys: "Ctrl+Z",
+        action: "Undo",
+    },
+    KeyBinding {
+        group: "Editor",
+        keys: "Ctrl+Y",
+        action: "Redo",
+    },
+    KeyBinding {
+        group: "Editor",
+        keys: "Ctrl+F",
+        action: "Find",
+    },
+    KeyBinding {
+        group: "Editor",
+        keys: "Ctrl+G",
+        action: "Go to line",
+    },
+    KeyBinding {
+        group: "Editor",
+        keys: "Ctrl+P",
+        action: "Fuzzy file finder",
+    },
+    KeyBinding {
+        group: "Editor",
+        keys: "Ctrl+N",
+        action: "Autocomplete word (Ctrl+Space alias)",
+    },
+    KeyBinding {
+        group: "Editor",
+        keys: "Up / Down",
+        action: "Completion: previous / next",
+    },
+    KeyBinding {
+        group: "Editor",
+        keys: "Tab / Enter",
+        action: "Completion: accept",
+    },
+    KeyBinding {
+        group: "Editor",
+        keys: "Esc",
+        action: "Completion: dismiss",
+    },
+    KeyBinding {
+        group: "Editor",
+        keys: "Ctrl+E",
+        action: "Split pane vertically",
+    },
+    KeyBinding {
+        group: "Editor",
+        keys: "Ctrl+\\",
+        action: "Split pane (alias)",
+    },
+    KeyBinding {
+        group: "Editor",
+        keys: "Ctrl+W",
+        action: "Close pane",
+    },
+    KeyBinding {
+        group: "Editor",
+        keys: "Alt+Left / Alt+Right",
+        action: "Move focus between panes",
+    },
+    KeyBinding {
+        group: "Editor",
+        keys: "Ctrl+Alt+Up / Down",
+        action: "Add caret above / below",
+    },
+    KeyBinding {
+        group: "Editor",
+        keys: "Alt+Shift+Up / Down",
+        action: "Add caret above / below (alias)",
+    },
+    KeyBinding {
+        group: "Editor",
+        keys: "Esc",
+        action: "Collapse to a single caret",
+    },
+    KeyBinding {
+        group: "Terminal",
+        keys: "Ctrl+T",
+        action: "New terminal",
+    },
+    KeyBinding {
+        group: "Terminal",
+        keys: "Alt+Left / Alt+Right",
+        action: "Switch terminal",
+    },
+    KeyBinding {
+        group: "Terminal",
+        keys: "Ctrl+W",
+        action: "Close terminal",
+    },
+    KeyBinding {
+        group: "File finder",
+        keys: "Up / Down",
+        action: "Move selection",
+    },
+    KeyBinding {
+        group: "File finder",
+        keys: "Enter",
+        action: "Open selected file",
+    },
+    KeyBinding {
+        group: "File finder",
+        keys: "Esc",
+        action: "Dismiss",
+    },
+    KeyBinding {
+        group: "Sidebar",
+        keys: "Up / Down",
+        action: "Move selection",
+    },
+    KeyBinding {
+        group: "Sidebar",
+        keys: "Left / Right",
+        action: "Collapse / expand directory",
+    },
+    KeyBinding {
+        group: "Sidebar",
+        keys: "Enter",
+        action: "Open file / toggle directory",
+    },
+    KeyBinding {
+        group: "Diff view",
+        keys: "Up / Down",
+        action: "Select file / scroll diff",
+    },
+    KeyBinding {
+        group: "Diff view",
+        keys: "Enter / Right",
+        action: "Enter the diff",
+    },
+    KeyBinding {
+        group: "Diff view",
+        keys: "Left",
+        action: "Back to the file list",
+    },
+    KeyBinding {
+        group: "Diff view",
+        keys: "n / p",
+        action: "Next / previous change",
+    },
+    KeyBinding {
+        group: "Diff view",
+        keys: "r",
+        action: "Refresh",
+    },
+    KeyBinding {
+        group: "Diff view",
+        keys: "Esc",
+        action: "Close the diff view",
+    },
 ];
 
 /// An event delivered to the main loop, from input or from a terminal pane.
@@ -627,7 +807,8 @@ impl App {
     fn split_vertical(&mut self) {
         self.completion = None;
         let buffer_id = self.panes[self.focused].buffer_id;
-        self.panes.insert(self.focused + 1, EditorPane::new(buffer_id));
+        self.panes
+            .insert(self.focused + 1, EditorPane::new(buffer_id));
         self.focused += 1;
     }
 
@@ -795,10 +976,7 @@ impl App {
     /// Re-run incremental search against the focused pane after the query
     /// changed. No-op for go-to-line, which acts only on commit.
     fn minibuffer_input_changed(&mut self) {
-        let Some((mode, query)) = self
-            .minibuffer
-            .as_ref()
-            .map(|m| (m.mode, m.input.clone()))
+        let Some((mode, query)) = self.minibuffer.as_ref().map(|m| (m.mode, m.input.clone()))
         else {
             return;
         };
@@ -833,8 +1011,10 @@ impl App {
                 }
                 MiniMode::Files => {
                     // Open the selected file (a no-op when nothing matched).
-                    if let Some(path) =
-                        self.file_finder.as_ref().and_then(FileFinder::selected_path)
+                    if let Some(path) = self
+                        .file_finder
+                        .as_ref()
+                        .and_then(FileFinder::selected_path)
                     {
                         self.open_in_focused_pane(path);
                     }
@@ -1027,7 +1207,12 @@ fn render_help_overlay(frame: &mut Frame, theme: &Theme) {
 /// Draw the completion popup as a bordered list anchored just below the cursor
 /// (`anchor` is the cursor's screen position), flipping above when there is no
 /// room below. Rows and width are bounded; the selected entry is highlighted.
-fn render_completion_popup(frame: &mut Frame, anchor: (u16, u16), comp: &Completion, theme: &Theme) {
+fn render_completion_popup(
+    frame: &mut Frame,
+    anchor: (u16, u16),
+    comp: &Completion,
+    theme: &Theme,
+) {
     let screen = frame.area();
     let rows = comp.candidates.len().min(MAX_CANDIDATES);
     if rows == 0 {
@@ -1043,7 +1228,9 @@ fn render_completion_popup(frame: &mut Frame, anchor: (u16, u16), comp: &Complet
         .map(|c| c.chars().count())
         .max()
         .unwrap_or(0);
-    let w = ((longest as u16).saturating_add(2)).min(screen.width).max(1);
+    let w = ((longest as u16).saturating_add(2))
+        .min(screen.width)
+        .max(1);
     let h = ((rows as u16).saturating_add(2)).min(screen.height).max(1);
 
     let (ax, ay) = anchor;
@@ -1108,7 +1295,9 @@ fn render_file_finder_results(frame: &mut Frame, prompt_row: Rect, ff: &FileFind
         .map(|(_, d)| d.chars().count())
         .max()
         .unwrap_or(0);
-    let w = ((longest as u16).saturating_add(2)).min(screen.width).max(1);
+    let w = ((longest as u16).saturating_add(2))
+        .min(screen.width)
+        .max(1);
     let h = ((rows as u16).saturating_add(2)).min(screen.height).max(1);
     let y = prompt_row.y.saturating_sub(h);
     let x = screen.x;
@@ -1548,7 +1737,10 @@ mod tests {
         place_cursor(&mut app, 0, 15); // end of the trailing "al"
         trigger_completion(&mut app);
         let comp = app.completion.as_ref().expect("popup should open");
-        assert_eq!(comp.candidates, vec!["alpha".to_string(), "alpine".to_string()]);
+        assert_eq!(
+            comp.candidates,
+            vec!["alpha".to_string(), "alpine".to_string()]
+        );
         assert_eq!(comp.selected, 0);
     }
 
@@ -1730,7 +1922,10 @@ mod tests {
     fn ctrl_alt_down_adds_caret_typing_fans_out_and_esc_collapses() {
         let mut app = app_with("aaa\nbbb\nccc");
         // primary at (0,0); add a caret below, then type into both
-        app.on_key(press(KeyCode::Down, KeyModifiers::CONTROL | KeyModifiers::ALT));
+        app.on_key(press(
+            KeyCode::Down,
+            KeyModifiers::CONTROL | KeyModifiers::ALT,
+        ));
         assert!(app.panes[0].has_secondary_carets());
         app.on_key(press(KeyCode::Char('X'), KeyModifiers::NONE));
         assert_eq!(app.buffers[0].line_text(0), "Xaaa");
@@ -1744,7 +1939,10 @@ mod tests {
     #[test]
     fn alt_shift_down_is_an_add_caret_alias() {
         let mut app = app_with("aaa\nbbb");
-        app.on_key(press(KeyCode::Down, KeyModifiers::ALT | KeyModifiers::SHIFT));
+        app.on_key(press(
+            KeyCode::Down,
+            KeyModifiers::ALT | KeyModifiers::SHIFT,
+        ));
         assert!(app.panes[0].has_secondary_carets());
     }
 
