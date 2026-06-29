@@ -1,5 +1,7 @@
 # NyxVim
 
+[![CI](https://github.com/Guiartuzo/NyxVim/actions/workflows/rust.yml/badge.svg)](https://github.com/Guiartuzo/NyxVim/actions/workflows/rust.yml)
+
 A minimalist, **modeless** terminal code editor — fast and snappy like `nano`/`vim`,
 but with a familiar VSCode-style editing model (arrow keys move, `Shift+Arrow`
 selects, `Ctrl+S` saves), a toggleable file-tree sidebar, split panes, line

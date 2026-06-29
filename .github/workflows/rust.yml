@@ -1,4 +1,4 @@
-# .github/workflows/ci.yml
+# .github/workflows/rust.yml
 name: CI
 
 on:
@@ -32,7 +32,7 @@ jobs:
           components: clippy
       # tree-sitter-rust builds a C grammar — needs cc
       - name: Install C toolchain
-        run: sudo apt-get install -y gcc
+        run: sudo apt-get update && sudo apt-get install -y gcc
       - uses: actions/cache@v4
         with:
           path: |
@@ -44,13 +44,26 @@ jobs:
       - run: cargo clippy --all-targets -- -D warnings
 
   build:
-    name: Build
-    runs-on: ubuntu-latest
+    name: Build (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            bin: nyxvim
+          - os: windows-latest
+            bin: nyxvim.exe
+          - os: macos-latest
+            bin: nyxvim
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Install C toolchain
-        run: sudo apt-get install -y gcc
+      # tree-sitter-rust builds a C grammar — Linux needs gcc; the Windows
+      # (MSVC) and macOS (clang) runners already ship a C toolchain.
+      - name: Install C toolchain (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y gcc
       - uses: actions/cache@v4
         with:
           path: |
@@ -61,20 +74,27 @@ jobs:
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: Build release binary
         run: cargo build --release --verbose
-      # Upload the binary as an artifact for inspection
-      - uses: actions/upload-artifact@v4
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
         with:
-          name: nyxvim-linux
-          path: target/release/nyxvim
+          name: nyxvim-${{ matrix.os }}
+          path: target/release/${{ matrix.bin }}
 
   test:
-    name: Tests
-    runs-on: ubuntu-latest
+    name: Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Windows is excluded: the terminal/PTY tests spawn a POSIX shell
+        # (`/bin/sh`), which does not exist on Windows.
+        os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: Install C toolchain
-        run: sudo apt-get install -y gcc
+      - name: Install C toolchain (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y gcc
       - uses: actions/cache@v4
         with:
           path: |
@@ -83,12 +103,11 @@ jobs:
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-      # Run only lib/unit tests — PTY/terminal tests need a real TTY
-      # Use `-- --test-threads=1` if tests share global terminal state
+      # Runs all unit tests (they live in the binary crate, so no `--lib`).
       - name: Run tests
-        run: cargo test --lib --verbose
+        run: cargo test --verbose
 
-  # Optional: security audit on dependency vulnerabilities
+  # Security audit on dependency vulnerabilities
   audit:
     name: Security Audit
     runs-on: ubuntu-latest
