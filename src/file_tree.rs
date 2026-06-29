@@ -11,7 +11,7 @@ use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::style::Style;
 use ratatui::text::{Line, Text};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::{Borders, Paragraph};
 use walkdir::WalkDir;
 
 use crate::theme::Theme;
@@ -197,10 +197,7 @@ impl FileTree {
 
         // A rounded box on all sides; the file list renders inside it. The
         // Paragraph's `.block(...)` clips the lines to the block's inner area.
-        let block = Block::new()
-            .borders(Borders::ALL)
-            .border_type(theme.border_type())
-            .border_style(Style::new().fg(theme.border));
+        let block = theme.block(Borders::ALL);
         frame.render_widget(Paragraph::new(Text::from(lines)).block(block), area);
     }
 }

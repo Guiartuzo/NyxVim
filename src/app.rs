@@ -18,7 +18,7 @@ use ratatui::crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, Ke
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::Style;
 use ratatui::text::{Line, Text};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use ratatui::widgets::{Borders, Clear, Paragraph};
 
 use crate::buffer::Buffer;
 use crate::complete::{Completion, MAX_CANDIDATES};
@@ -344,11 +344,7 @@ impl App {
         }
         // Thin vertical lines between panes.
         for i in 0..n.saturating_sub(1) {
-            let divider = Block::new()
-                .borders(Borders::LEFT)
-                .border_type(theme.border_type())
-                .border_style(Style::new().fg(theme.border));
-            frame.render_widget(divider, regions[i * 2 + 1]);
+            frame.render_widget(theme.block(Borders::LEFT), regions[i * 2 + 1]);
         }
 
         // The completion popup is anchored to the focused pane's cursor.
@@ -1020,9 +1016,8 @@ fn render_help_overlay(frame: &mut Frame, theme: &Theme) {
 
     let height = lines.len() as u16 + 2; // + borders
     let area = centered_rect(frame.area(), 52, height);
-    let block = Block::new()
-        .borders(Borders::ALL)
-        .border_type(theme.border_type())
+    let block = theme
+        .block(Borders::ALL)
         .border_style(Style::new().fg(theme.focus_bg))
         .title(" NyxVim — Keybindings ");
     frame.render_widget(Clear, area);
@@ -1078,10 +1073,7 @@ fn render_completion_popup(frame: &mut Frame, anchor: (u16, u16), comp: &Complet
         })
         .collect();
 
-    let block = Block::new()
-        .borders(Borders::ALL)
-        .border_type(theme.border_type())
-        .border_style(Style::new().fg(theme.border));
+    let block = theme.block(Borders::ALL);
     let area = Rect::new(x, y, w, h);
     frame.render_widget(Clear, area);
     frame.render_widget(Paragraph::new(Text::from(lines)).block(block), area);
@@ -1133,10 +1125,7 @@ fn render_file_finder_results(frame: &mut Frame, prompt_row: Rect, ff: &FileFind
         })
         .collect();
 
-    let block = Block::new()
-        .borders(Borders::ALL)
-        .border_type(theme.border_type())
-        .border_style(Style::new().fg(theme.border));
+    let block = theme.block(Borders::ALL);
     let area = Rect::new(x, y, w, h);
     frame.render_widget(Clear, area);
     frame.render_widget(Paragraph::new(Text::from(lines)).block(block), area);

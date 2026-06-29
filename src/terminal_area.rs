@@ -12,7 +12,7 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::Style;
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Paragraph};
+use ratatui::widgets::{Borders, Paragraph};
 
 use crate::terminal_pane::TerminalPane;
 use crate::theme::Theme;
@@ -127,10 +127,7 @@ impl TerminalArea {
         // A rounded box frames the whole area; the tab strip and the active
         // terminal render inside it. The PTY is sized to the inner content rect
         // (below), not the outer area, so its grid matches the visible region.
-        let block = Block::new()
-            .borders(Borders::ALL)
-            .border_type(theme.border_type())
-            .border_style(Style::new().fg(theme.border));
+        let block = theme.block(Borders::ALL);
         let inner = block.inner(area);
         frame.render_widget(block, area);
 

@@ -13,7 +13,7 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Borders, Clear, Paragraph};
+use ratatui::widgets::{Borders, Clear, Paragraph};
 use similar::{ChangeTag, TextDiff};
 
 use crate::git::{self, ChangeKind, ChangedFile, FileContents};
@@ -238,10 +238,7 @@ impl DiffView {
 
     fn render_list(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
         // Rounded, untitled box; the changed-files list renders inside it.
-        let block = Block::new()
-            .borders(Borders::ALL)
-            .border_type(theme.border_type())
-            .border_style(Style::new().fg(theme.border));
+        let block = theme.block(Borders::ALL);
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
@@ -273,10 +270,7 @@ impl DiffView {
 
     fn render_diff(&self, frame: &mut Frame, area: Rect, theme: &Theme) {
         // Rounded, untitled box; the diff content renders inside it.
-        let block = Block::new()
-            .borders(Borders::ALL)
-            .border_type(theme.border_type())
-            .border_style(Style::new().fg(theme.border));
+        let block = theme.block(Borders::ALL);
         let inner = block.inner(area);
         frame.render_widget(block, area);
 
@@ -315,11 +309,7 @@ impl DiffView {
             right_lines.push(r);
         }
         frame.render_widget(Paragraph::new(left_lines), left);
-        let div = Block::new()
-            .borders(Borders::LEFT)
-            .border_type(theme.border_type())
-            .border_style(Style::new().fg(theme.border));
-        frame.render_widget(div, mid);
+        frame.render_widget(theme.block(Borders::LEFT), mid);
         frame.render_widget(Paragraph::new(right_lines), right);
     }
 

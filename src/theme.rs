@@ -14,7 +14,7 @@
 //! code takes it by value or by a cheap `&Theme` without borrow-checker friction.
 
 use ratatui::style::{Color, Style};
-use ratatui::widgets::BorderType;
+use ratatui::widgets::{Block, BorderType, Borders};
 
 /// Semantic UI color tokens. Each field names a *role*; the concrete colors live
 /// only in [`Theme::default`] (and any future palette constructor).
@@ -86,6 +86,16 @@ impl Theme {
     /// editor's border look lives in one place — rounded, for soft framed chrome.
     pub fn border_type(&self) -> BorderType {
         BorderType::Rounded
+    }
+
+    /// A themed bordered block with the given sides: the one place that decides
+    /// how a bordered region (a panel box or a divider) looks. Pass
+    /// `Borders::ALL` for a box, `Borders::LEFT`/etc. for a divider.
+    pub fn block(&self, borders: Borders) -> Block<'static> {
+        Block::new()
+            .borders(borders)
+            .border_type(self.border_type())
+            .border_style(Style::new().fg(self.border))
     }
 
     /// Style for a selected row whose region's focus state is `focused`. Collapses
